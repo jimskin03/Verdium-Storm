@@ -52,10 +52,8 @@ export const SHOT_PRESETS: Record<ShotPresetName, ShotPreset> = {
     target: [-120, -60], distance: 300, yaw: Math.PI * 0.92, pitch: 0.32,
     description: 'Golden hour — sun disc, god rays, aerial perspective',
     apply: (engine) => {
-      const sky = engine.get('skyAtmosphere') as unknown as { timeOfDay: number } | undefined;
       const atmo = engine.get('atmosphere') as unknown as { timeOfDay: number } | undefined;
-      if (sky) sky.timeOfDay = 0.79;
-      else if (atmo) atmo.timeOfDay = 0.79;
+      if (atmo) atmo.timeOfDay = 0.79;
     },
   },
   skyline: {

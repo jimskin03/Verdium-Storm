@@ -53,12 +53,11 @@ async function main(): Promise<void> {
  */
 async function loadOptionalSystems(engine: Engine): Promise<void> {
   const optional: Array<[string, () => Promise<{ default?: unknown } & Record<string, unknown>>]> = [
-    ['TerrainRenderer', () => import('@/world/TerrainRenderer')],
-    ['SkyAtmosphere', () => import('@/engine/SkyAtmosphere')],
     ['Lighting', () => import('@/engine/Lighting')],
     ['Water', () => import('@/world/Water')],
     ['Vegetation', () => import('@/world/Vegetation')],
     ['Props', () => import('@/world/Props')],
+    ['ModelCatalog', () => import('@/entities/ModelCatalog')],
     ['Decals', () => import('@/fx/Decals')],
     ['Effects', () => import('@/fx/Effects')],
     ['Battlefield', () => import('@/game/Battlefield')],
@@ -119,9 +118,7 @@ function exposeHarness(engine: Engine, rig: CameraRig): void {
 
     setTimeOfDay(t: number): void {
       const env = engine.get('atmosphere') as unknown as { timeOfDay: number } | undefined;
-      const sky = engine.get('skyAtmosphere') as unknown as { timeOfDay: number } | undefined;
-      if (sky) sky.timeOfDay = t;
-      else if (env) env.timeOfDay = t;
+      if (env) env.timeOfDay = t;
     },
 
     setPaused(v: boolean): void {
