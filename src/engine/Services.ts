@@ -61,6 +61,8 @@ export interface AudioService {
 
 interface ServiceMap {
   terrain: TerrainService;
+  /** Mesh factory for units and buildings; see src/entities/Types.ts. */
+  models: import('@/entities/Types').ModelCatalog;
   environment: EnvironmentService;
   decals: DecalService;
   effects: EffectsService;

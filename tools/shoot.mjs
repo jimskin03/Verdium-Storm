@@ -44,6 +44,7 @@ function parseArgs(argv) {
     timeout: 180000,
     tod: null,
     keep: false,
+    dist: 'dist',
   };
   for (let i = 2; i < argv.length; i++) {
     const key = argv[i].replace(/^--/, '');
@@ -59,13 +60,14 @@ function parseArgs(argv) {
   return args;
 }
 
-async function startPreview() {
-  const distIndex = path.join(ROOT, 'dist', 'index.html');
+async function startPreview(distDir) {
+  const distIndex = path.join(ROOT, distDir, 'index.html');
   if (!existsSync(distIndex)) {
-    throw new Error('dist/ not found — run `npm run build` before shooting');
+    throw new Error(`${distDir}/index.html not found — run \`npm run build\` first`);
   }
   const port = 4173 + Math.floor(Math.random() * 500);
-  const child = spawn('npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+  const child = spawn('npx', ['vite', 'preview', '--host', '127.0.0.1', '--port', String(port),
+    '--strictPort', '--outDir', distDir], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: process.env,
@@ -93,7 +95,7 @@ async function main() {
   let baseUrl = args.url;
 
   if (!baseUrl) {
-    server = await startPreview();
+    server = await startPreview(args.dist);
     baseUrl = server.url;
   }
 
