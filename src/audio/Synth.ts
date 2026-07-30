@@ -337,6 +337,12 @@ export function noiseSource(ctx: BaseAudioContext, opts: NoiseSourceOptions = {}
   return src;
 }
 
+/** Connects an LFO (via its depth gain) to a modulation target parameter. */
+export function modulate(src: AudioNode, depth: GainNode, param: AudioParam): void {
+  src.connect(depth);
+  depth.connect(param);
+}
+
 /** Connects a chain of nodes left to right and returns the last one. */
 export function chain<T extends AudioNode>(...nodes: [AudioNode, ...AudioNode[], T]): T {
   for (let i = 0; i < nodes.length - 1; i++) nodes[i].connect(nodes[i + 1]);
@@ -363,7 +369,7 @@ export function transient(
   o: TransientOptions,
 ): number {
   const dur = o.decay ?? 0.012;
-  const src = noiseSource(ctx, { kind: 'white', offset: 0 });
+  const src = noiseSource(ctx, { kind: 'white' });
   const bp = filter(ctx, 'bandpass', o.freq ?? 3200, o.q ?? 0.9);
   const g = gain(ctx, 0);
   chain(src, bp, g, dest);
