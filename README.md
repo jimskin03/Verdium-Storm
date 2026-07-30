@@ -55,6 +55,9 @@ For notes on the code structure, systems and functions, see docs/ARCHITECTURE.md
 If you'd like to contribute, see CONTRIBUTING.md for guidelines. Issue reports should include steps to reproduce, browser and GPU/driver details when relevant.
 
 ## Credits
+
+Special thanks to @achimala (TheLongSilence) — original inspiration / contribution. https://github.com/achimala/TheLongSilence"
+
 Author / repository owner: jimskin03
 Three.js: https://threejs.org/ (CDN used)
 All in-game audio is synthesized via the Web Audio API — there are no external SFX assets.
