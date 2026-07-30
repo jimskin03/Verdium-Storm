@@ -175,7 +175,15 @@ export class Audio implements System, AudioService {
     if (this.sinceExternalListener > 0.5 && this.camera) {
       const cam = this.camera;
       const f = FORWARD;
-      cam.getWorldDirection(f);
+      // Read the view direction straight off the world matrix rather than via
+      // getWorldDirection, which would write into a real Vector3 — this module
+      // imports three for types only and must not construct one.
+      cam.updateMatrixWorld();
+      const e = cam.matrixWorld.elements;
+      const len = Math.hypot(e[8], e[9], e[10]) || 1;
+      f.x = -e[8] / len;
+      f.y = -e[9] / len;
+      f.z = -e[10] / len;
       const groundT = f.y < -0.05 ? -cam.position.y / f.y : 0;
       const along = Math.min(groundT * 0.65, 200);
       EAR.x = cam.position.x + f.x * along;
@@ -294,6 +302,6 @@ async function renderOffline(
 
 /** Scratch vectors for the camera-follow listener; avoids per-frame allocation. */
 const EAR = { x: 0, y: 0, z: 0 };
-const FORWARD = { x: 0, y: 0, z: -1, isVector3: true } as unknown as THREE.Vector3;
+const FORWARD: Vec3Like = { x: 0, y: 0, z: -1 };
 
 export default Audio;

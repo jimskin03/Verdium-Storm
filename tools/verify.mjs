@@ -140,6 +140,9 @@ async function main() {
     const stats = await page.evaluate(() => window.VS.stats());
     check('scene draws geometry', stats.drawCalls > 0, `${stats.drawCalls} calls, ${stats.triangles} tris`);
 
+    const faulted = await page.evaluate(() => window.VS.faulted?.() ?? []);
+    check('no system faulted', faulted.length === 0, faulted.length ? faulted.join(', ') : 'all healthy');
+
     // Step deterministically, then measure — this is also what the capture path
     // does, so a failure here means captures are unreliable too.
     await page.evaluate(() => { window.VS.freeze(); window.VS.step(20); });

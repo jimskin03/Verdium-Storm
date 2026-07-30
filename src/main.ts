@@ -163,6 +163,11 @@ function exposeHarness(engine: Engine, rig: CameraRig): void {
     systems(): string[] {
       return (engine as unknown as { systems: Array<{ name: string }> }).systems.map((s) => s.name);
     },
+
+    /** Systems disabled after throwing. Empty is the only healthy value. */
+    faulted(): string[] {
+      return [...engine.faulted];
+    },
   };
 
   (window as unknown as Record<string, unknown>).VS = harness;

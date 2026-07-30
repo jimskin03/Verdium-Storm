@@ -103,7 +103,13 @@ export class Engine {
     for (let i = 0; i < this.systems.length; i++) {
       const system = this.systems[i];
       onProgress?.(system.name, i, this.systems.length);
-      await system.init?.(ctx);
+      // A system that cannot initialise is disabled rather than allowed to
+      // abort boot — losing one feature beats losing the whole game.
+      try {
+        await system.init?.(ctx);
+      } catch (err) {
+        this.fault(system, 'init', err);
+      }
     }
   }
 
@@ -137,12 +143,7 @@ export class Engine {
     const start = performance.now();
     this.renderer.info.reset();
 
-    for (const system of this.systems) system.update?.(dt, this.elapsed);
-    for (const system of this.systems) system.lateUpdate?.(dt, this.elapsed);
-
-    if (!this.renderHook?.render(dt)) {
-      this.renderer.render(this.scene, this.camera);
-    }
+    this.runSystems(dt);
 
     const ms = performance.now() - start;
     this.frameMs += (ms - this.frameMs) * 0.1;
@@ -152,12 +153,51 @@ export class Engine {
   stepManual(dt: number): void {
     this.elapsed += dt;
     this.frameCount++;
-    for (const system of this.systems) system.update?.(dt, this.elapsed);
-    for (const system of this.systems) system.lateUpdate?.(dt, this.elapsed);
-    if (!this.renderHook?.render(dt)) {
-      this.renderer.render(this.scene, this.camera);
-    }
+    this.runSystems(dt);
   }
+
+  /**
+   * Ticks every system and presents the frame.
+   *
+   * Systems are isolated from each other: a throwing system is reported once
+   * and then skipped for the rest of the session. Without this, one bad update
+   * aborts the loop before `render()` runs and the game goes black — which is a
+   * very expensive way to find out that an unrelated subsystem has a bug.
+   */
+  private runSystems(dt: number): void {
+    for (const system of this.systems) {
+      if (this.faulted.has(system.name)) continue;
+      try {
+        system.update?.(dt, this.elapsed);
+      } catch (err) {
+        this.fault(system, 'update', err);
+      }
+    }
+    for (const system of this.systems) {
+      if (this.faulted.has(system.name)) continue;
+      try {
+        system.lateUpdate?.(dt, this.elapsed);
+      } catch (err) {
+        this.fault(system, 'lateUpdate', err);
+      }
+    }
+
+    try {
+      if (this.renderHook?.render(dt)) return;
+    } catch (err) {
+      console.error('[VerdiumStorm] render hook failed; falling back to forward rendering', err);
+      this.renderHook = null;
+    }
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  private fault(system: System, hook: string, err: unknown): void {
+    this.faulted.add(system.name);
+    console.error(`[VerdiumStorm] system "${system.name}" threw in ${hook} and has been disabled`, err);
+  }
+
+  /** Names of systems disabled after throwing; surfaced by the harness. */
+  readonly faulted = new Set<string>();
 
   private handleResize = (): void => {
     const w = this.viewport.clientWidth;
