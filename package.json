@@ -1,0 +1,22 @@
+{
+  "name": "verdium-storm",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit",
+    "shoot": "node tools/shoot.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/three": "^0.172.0",
+    "typescript": "5.7.3",
+    "vite": "6.0.7"
+  },
+  "dependencies": {
+    "three": "0.172.0"
+  }
+}
