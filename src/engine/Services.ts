@@ -63,6 +63,8 @@ interface ServiceMap {
   terrain: TerrainService;
   /** Mesh factory for units and buildings; see src/entities/Types.ts. */
   models: import('@/entities/Types').ModelCatalog;
+  /** Simulation state and commands for the HUD; see src/game/GameState.ts. */
+  game: import('@/game/GameState').GameStateService;
   environment: EnvironmentService;
   decals: DecalService;
   effects: EffectsService;
