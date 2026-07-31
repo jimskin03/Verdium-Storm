@@ -127,6 +127,49 @@ answer "what colour is the horizon at this sun angle" in milliseconds. Port a
 variant of it before spending 15 minutes on a screenshot round-trip; most sky
 questions are numerical, and the harness is slow under software rendering.
 
+Sanity values at the default 34° sun, altitude 60 m, in model units (solar
+irradiance at the top of the atmosphere = 1). Anything wildly off these means
+`skyCpu` is broken, not that the sky is unusual:
+
+| quantity | R | G | B | B/R |
+| --- | --- | --- | --- | --- |
+| zenith | 5.0e-3 | 1.1e-2 | 2.5e-2 | 4.9 |
+| horizon ring | 5.4e-2 | 7.6e-2 | 8.0e-2 | 1.5 |
+| hemispheric average | 2.7e-2 | 4.3e-2 | 6.2e-2 | 2.3 |
+
+`skyCpu` is not only a convenience: `fillIntensity` is derived from the
+*absolute* magnitude of the hemispheric average, so an error in its scale silently
+turns the sky fill light off rather than making it the wrong colour. The key light
+escapes this because it is driven by transmittance, which is a ratio.
+
+## Measuring in a rendered frame
+
+`node tools/probe.mjs` boots the game like `shoot.mjs` but reports the mean sRGB
+of small pixel patches under a list of conditions, each a snippet of JS evaluated
+in the page. `window.VS_ATMO` (harness builds only) exposes `skyUniforms` and
+`skyState`, so fog density, inscatter gain and the debug taps can all be swept
+live — one boot, no rebuild per condition, which is the only affordable way to
+work when a frame costs ~20 s under SwiftShader.
+
+`skyUniforms.uVsDebug.x` selects a diagnostic output from the aerial-perspective
+block, inert at its shipped value of 0:
+
+| x | output |
+| --- | --- |
+| 1 | lit surface colour, before aerial perspective |
+| 2 | inscattered radiance from the sky-view LUT |
+| 3 | transmittance |
+| 4 | the inscatter term alone, `ins * (1 - tr)` |
+| 5 | the attenuated surface alone, `color * tr` |
+| 6 | optical depth |
+| 7 | terrain albedo |
+| 8 | the flat constant in `uVsDebug.y`, to calibrate the display transform |
+
+Modes 1-7 are scaled by `uVsDebug.z` when it is non-zero, so a term can be
+brought into the measurable part of the curve. Note that the display transform is
+steeply compressive — a scene-referred 0.25 already reads as clipped white — so
+compare terms against each other, not against an assumed gamma.
+
 Frame statistics come from `node tools/verify.mjs --dist <dir>`. Healthy is mean
 ~0.29, stdev ~0.22, 16/16 histogram buckets, nothing clipping, and `faulted()`
 empty — a throwing system is disabled and reported rather than fatal, so a broken
@@ -144,6 +187,38 @@ atmosphere looks like "no crash" but renders nothing.
   to the horizon fixed it; the fog densities then had to come down ~2x because
   they had been fitted against the wrong, too-dark inscatter.
 
+- **Shaded ground rendered as saturated blue — it read as water.** Two faults
+  compounding, one of which was hiding the other.
+
+  `sampleMedium` in `skyCpu.ts` filled a single module-level record and returned
+  it. `skyRadiance` sampled the medium at a march step, then called
+  `transmittanceToSpace`, which runs its own 24-step march and samples the medium
+  at every one of them — clobbering the caller's sample. Every in-scatter term
+  was therefore evaluated against the medium at the *top* of the atmosphere,
+  where density is e⁻¹² of sea level. Measured at the default sun: zenith
+  radiance 1.9e-6 instead of 2.5e-2, and `fillIntensity` — which is derived from
+  the absolute magnitude of the hemispheric average — 3.0e-5 instead of 0.56. The
+  sky fill light was, in effect, switched off, so shadowed terrain was lit by the
+  IBL probe and a 0.35 hemisphere light and nothing else. The published
+  `horizonColor` was black for the same reason, which is what `scene.fog` and the
+  HUD read.
+
+  With the surface that dark, aerial perspective was the whole pixel. Rendering
+  the terms separately (`uVsDebug` 5 and 4) at a valley-floor patch in the
+  `overview` shot: attenuated surface rgb(5,13,26), inscatter term rgb(1,72,153),
+  composite rgb(53,117,155). The blue was not a tint on the ground, it *was* the
+  air in front of it, and the ground behind it was near-black.
+
+  Fixing the aliasing took the patch to rgb(109,162,159), and halving `uFogA` —
+  the re-pairing the note in `configureFog` describes, now that there is a real
+  surface for the veil to sit on — took it to rgb(70,117,90), a desaturated
+  grey-green at the same luminance the blue had. Sunlit ground stayed warm
+  throughout (R−B 108 → 153, it had been washed out by the veil).
+
+  The tell that pointed at the light rig rather than the fog: disabling the fill
+  and hemisphere lights changed the frame by 2/255. That looks like proof the
+  light rig is irrelevant, and it is actually proof the fill was already dead.
+
 ## Known shortfalls
 
 - **Golden hour is underexposed.** At the `sunset` preset (4° sun) the sky is
@@ -151,10 +226,16 @@ atmosphere looks like "no crash" but renders nothing.
   compensation in `refreshLighting` clamps at 2.9x, and a 4° sun on flat ground
   delivers `sin(4°)` of the irradiance. The sky and the ground want different
   exposures here and only one is available.
-- **Shaded ground is very blue.** Physically defensible — diffuse skylight really
-  is that blue — but the engine has no bounce GI from surrounding sunlit slopes,
-  only a from-below bounce light that up-facing surfaces barely see, so shadowed
-  valleys get sky and nothing else.
+- **No bounce GI from surrounding sunlit slopes.** The stand-in is
+  `terrain-bounce` in `Lighting.ts`, a dim warm directional pointing straight
+  down. It is a constant where the real thing varies with how much sunlit terrain
+  each point can see, so a shaded hollow surrounded by lit slopes and a shaded
+  plateau get the same warm fill.
+- **The fog is ~35x thicker than the atmosphere it inscatters.** Deliberate — a
+  1 km playfield needs visible depth cueing — but it means the short-range
+  behaviour of aerial perspective is not physical, and the near field stays
+  sensitive to anything that changes how bright shaded ground is. Treat `uFogA`
+  as coupled to the ambient level, not as an independent knob.
 - **The multiple-scattering LUT is under-energised.** `MULTISCATTER_FRAG`
   normalises both accumulators without Hillaire's `4π` solid-angle factor, so the
   isotropic term lands ~12x low and the `1 / (1 - fms)` infinite-series

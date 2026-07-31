@@ -56,6 +56,13 @@ export class Engine {
     this.renderer.setPixelRatio(quality.pixelRatio);
     this.renderer.setSize(viewport.clientWidth, viewport.clientHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // This is the *fallback* display transform, not a second one stacked on the
+    // post stack's. Three only applies renderer tone mapping when drawing to the
+    // default framebuffer, and PostFX renders the scene into an offscreen HDR
+    // target, so this is inert whenever the post chain owns presentation
+    // (measured: forcing NoToneMapping moves the frame by <= 1/255). It matters
+    // only on the forward path — no post stack, or a render hook that threw and
+    // was dropped — where without it the raw HDR buffer would blow out.
     this.renderer.toneMapping = THREE.AgXToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;

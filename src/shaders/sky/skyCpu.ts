@@ -22,18 +22,36 @@ interface Medium {
   ext: number[];
 }
 
-const medium: Medium = { sr: [0, 0, 0], sm: 0, ext: [0, 0, 0] };
+function newMedium(): Medium {
+  return { sr: [0, 0, 0], sm: 0, ext: [0, 0, 0] };
+}
 
-function sampleMedium(h: number): Medium {
+/**
+ * Scratch media, one per nesting level.
+ *
+ * `sampleMedium` fills a caller-supplied record rather than returning a single
+ * shared one, and that is load-bearing: `skyRadiance` samples the medium at a
+ * march step and then calls `transmittanceToSpace`, which runs its own 24-step
+ * march and samples the medium at every one of them. With a single shared
+ * record the inner march overwrites the outer one's sample, so the in-scatter
+ * is evaluated against the medium at the *top of the atmosphere* — density
+ * e^-12 of sea level. The whole CPU sky then comes back ~1e5 times too dim and
+ * tinted by the pure Rayleigh ratio, which silently zeroed the sky fill light
+ * and blacked out the published horizon colour. See *Fixed* in ATMOSPHERE.md.
+ */
+const medium = newMedium();
+const mediumInner = newMedium();
+
+function sampleMedium(h: number, out: Medium): Medium {
   const dR = Math.exp(-Math.max(h, 0) / A.rayleighHeight);
   const dM = Math.exp(-Math.max(h, 0) / A.mieHeight);
   const dO = Math.max(0, 1 - Math.abs(h - A.ozoneCenter) / A.ozoneWidth);
-  medium.sm = A.mieScattering * dM;
+  out.sm = A.mieScattering * dM;
   for (let c = 0; c < 3; c++) {
-    medium.sr[c] = RS[c] * dR;
-    medium.ext[c] = medium.sr[c] + medium.sm + A.mieAbsorption * dM + OZ[c] * dO;
+    out.sr[c] = RS[c] * dR;
+    out.ext[c] = out.sr[c] + out.sm + A.mieAbsorption * dM + OZ[c] * dO;
   }
-  return medium;
+  return out;
 }
 
 /** Distance from (r, mu) to the top of the atmosphere. */
@@ -63,7 +81,7 @@ export function transmittanceToSpace(altitudeKm: number, mu: number, out = trans
   for (let i = 0; i < steps; i++) {
     const ti = (i + 0.5) * dt;
     const ri = Math.sqrt(ti * ti + 2 * r * mu * ti + r * r);
-    const m = sampleMedium(ri - A.groundRadius);
+    const m = sampleMedium(ri - A.groundRadius, mediumInner);
     od[0] += m.ext[0] * dt;
     od[1] += m.ext[1] * dt;
     od[2] += m.ext[2] * dt;
@@ -118,7 +136,7 @@ export function skyRadiance(
     // Altitude of the sample, curved-earth exact.
     const ri = Math.sqrt(t * t + 2 * r * mu * t + r * r);
     const h = ri - A.groundRadius;
-    const m = sampleMedium(h);
+    const m = sampleMedium(h, medium);
     // Sun zenith cosine at the sample point.
     const sampleMuSun = (r * sunDir.y + t * viewDir.dot(sunDir)) / ri;
     transmittanceToSpace(ri - A.groundRadius, sampleMuSun, sunT);

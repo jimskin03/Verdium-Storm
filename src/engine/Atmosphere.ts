@@ -142,13 +142,23 @@ export class Atmosphere implements System, EnvironmentService {
     // owned by other streams read `scene.fog` directly). The density is fitted
     // so FogExp2's squared-distance curve crosses the patched materials' haze at
     // ~1 km; it has to move whenever `uFogA.x` does, or water and terrain
-    // disagree about where the horizon is.
-    this.fog = new THREE.FogExp2(0x93a9b8, 0.00078);
+    // disagree about where the horizon is. FogExp2 is quadratic in distance
+    // where the patched haze is linear, so it tracks `sqrt` of the density
+    // change: halving `uFogA` moves this by 1/sqrt(2).
+    this.fog = new THREE.FogExp2(0x93a9b8, 0.00055);
     scene.fog = this.fog;
     scene.environmentIntensity = 1.0;
 
     this.applyTime(true);
     patchScene(scene);
+
+    // Diagnostic surface for tools/probe.mjs. The atmosphere's uniforms are the
+    // one part of the render that cannot be reached from `window.VS` (they live
+    // in a module-scope object, spliced into materials by reference), and every
+    // colour question about this stream is answered by toggling them live.
+    if (new URLSearchParams(location.search).has('harness')) {
+      (window as unknown as Record<string, unknown>).VS_ATMO = { skyUniforms, skyState, fog: this.fog };
+    }
 
     provide('environment', this);
   }
@@ -359,18 +369,34 @@ export class Atmosphere implements System, EnvironmentService {
    * past 1300 units to make sure the outer massif reads as distance rather than
    * as painted cardboard.
    *
-   * The densities are ~2x lower than they used to be, and that is a consequence
-   * of a fix rather than a taste change. They were originally fitted while the
-   * inscatter colour was wrong: aerial perspective read the sky-view LUT's
-   * below-horizon rows, which hold the planet's ground albedo, so the veil was
-   * both tan and unnaturally dark. A dark inscatter buys density for free — you
-   * can pile on optical depth before the image looks hazy. Once vsSkyLookup was
-   * clamped to the horizon and the inscatter became real sky, about 2.5x
-   * brighter in luminance, the same optical depth turned the playfield to milk.
-   * Density and inscatter brightness trade off directly; tune them as a pair.
+   * The densities have come down twice now, and both moves were consequences of
+   * fixes rather than taste changes — this term is only ever meaningful relative
+   * to the two things it is measured against.
+   *
+   * First, against the inscatter colour. They were originally fitted while
+   * aerial perspective read the sky-view LUT's below-horizon rows, which hold
+   * the planet's ground albedo, so the veil was both tan and unnaturally dark. A
+   * dark inscatter buys density for free — you can pile on optical depth before
+   * the image looks hazy — so once `vsSkyLookup` was clamped to the horizon they
+   * had to halve.
+   *
+   * Second, against the light reaching shaded ground. `skyCpu` was returning
+   * radiances ~1e5 low, which left `fillIntensity` at 3e-5 — the sky fill light
+   * was off. Shadowed terrain was therefore lit by almost nothing, and this fog
+   * was the only thing in front of it, so shaded ground rendered as ~90% sky
+   * inscatter: a saturated blue that read as water. With the fill restored the
+   * surface is back to roughly a fifth of its sunlit value, and the veil that
+   * used to sit on top of near-black now has to sit on top of that instead.
+   * Halved again to keep the same veil-to-surface ratio.
+   *
+   * For scale: the model's own sea-level extinction is ~4.2e-5/m in blue, so
+   * even at 1.5e-3 total this air is ~35x thicker than the atmosphere whose
+   * radiance it inscatters. That exaggeration is deliberate — a 1 km playfield
+   * needs visible depth cueing — but it is why the near field is so sensitive
+   * here, and why density and inscatter brightness must be tuned as a pair.
    */
   private configureFog(): void {
-    skyUniforms.uFogA.value.set(0.00064, 1 / 300, 0.0024, 1 / 34);
+    skyUniforms.uFogA.value.set(0.00032, 1 / 300, 0.0012, 1 / 34);
     skyUniforms.uFogExt.value.set(0.72, 0.94, 1.42);
     skyUniforms.uFogB.value.set(1.0, 1300, 1.7, 0.85);
   }

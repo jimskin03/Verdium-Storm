@@ -75,6 +75,14 @@ export const skyUniforms = {
   uCsmDepth: { value: new THREE.Vector4(1000, 1000, 1000, 1000) },
   /** x: cascade fade band, y: max PCF radius (texels), z: sun angular size. */
   uCsmParams: { value: new THREE.Vector3(0.12, 3.0, 0.022) },
+
+  /**
+   * Diagnostic channel. x selects a debug output for the aerial-perspective
+   * block (0 = off, which is the only value the game ever sets); the rest is
+   * spare. Kept in the shared block so `tools/probe.mjs` can flip it live and
+   * read intermediate terms out of a real frame instead of guessing at them.
+   */
+  uVsDebug: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
 export const shaderConfig = {
@@ -146,6 +154,7 @@ uniform vec4 uFogA;
 uniform vec3 uFogExt;
 uniform vec4 uFogB;
 uniform vec4 uSkyParams;
+uniform vec4 uVsDebug;
 `;
 
 /**
@@ -162,6 +171,13 @@ uniform vec4 uSkyParams;
 export const GLSL_AERIAL = /* glsl */ `
 #ifndef VS_AERIAL_INCLUDED
 #define VS_AERIAL_INCLUDED
+
+/**
+ * Albedo tap for debug mode 7. A surface shader that wants to expose its albedo
+ * assigns to this; everything else leaves it black. Only read when uVsDebug.x
+ * selects it, so it costs one dead store in the shipped shader.
+ */
+vec3 vsDbgAlbedo = vec3(0.0);
 
 /**
  * Inscattered radiance for a view ray, read from the sky-view LUT.
@@ -481,7 +497,28 @@ const AERIAL_APPLY = /* glsl */ `
     vec3 vsRel = vVsWorld - cameraPosition;
     float vsDist = length(vsRel);
     vec3 vsRd = vsRel / max(vsDist, 1e-4);
-    gl_FragColor.rgb = vsAerialPerspective(gl_FragColor.rgb, vVsWorld, cameraPosition, vsRd, vsDist);
+    vec3 vsBase = gl_FragColor.rgb;
+    gl_FragColor.rgb = vsAerialPerspective(vsBase, vVsWorld, cameraPosition, vsRd, vsDist);
+
+    // Diagnostic taps. Inert at uVsDebug.x == 0, which is what ships; the probe
+    // tool sets it to pull one term out of a real frame.
+    if (uVsDebug.x > 0.5) {
+      float vsDbgOd = vsFogOpticalDepth(cameraPosition.y, vVsWorld.y, vsDist, vVsWorld);
+      vec3 vsDbgTr = exp(-vsDbgOd * uFogExt);
+      vec3 vsDbgIns = vsSkyLookup(vsRd);
+      float vsDbgM = uVsDebug.x;
+      if (vsDbgM < 1.5) gl_FragColor.rgb = vsBase;
+      else if (vsDbgM < 2.5) gl_FragColor.rgb = vsDbgIns;
+      else if (vsDbgM < 3.5) gl_FragColor.rgb = vsDbgTr;
+      else if (vsDbgM < 4.5) gl_FragColor.rgb = vsDbgIns * (1.0 - vsDbgTr);
+      else if (vsDbgM < 5.5) gl_FragColor.rgb = vsBase * vsDbgTr;
+      else if (vsDbgM < 6.5) gl_FragColor.rgb = vec3(vsDbgOd);
+      else if (vsDbgM < 7.5) gl_FragColor.rgb = vsDbgAlbedo;
+      // Mode 8 is the calibration tap: a flat scene-referred constant, so the
+      // whole display transform can be inverted from measured pixels.
+      else gl_FragColor.rgb = vec3(uVsDebug.y);
+      if (vsDbgM < 7.5 && uVsDebug.z > 0.0) gl_FragColor.rgb *= uVsDebug.z;
+    }
   }
 `;
 

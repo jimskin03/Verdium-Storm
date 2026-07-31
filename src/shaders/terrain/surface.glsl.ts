@@ -341,4 +341,11 @@ vsSplatRough = vsRough;
 vsSplatAO = clamp(vsSrf.w * mix(1.0, vsCavity, 0.85), 0.0, 1.0);
 
 diffuseColor.rgb *= vsSplatAlbedo;
+
+// Hand the splat's albedo to the atmosphere's debug tap (uVsDebug.x == 7). The
+// guard matters: vsDbgAlbedo is declared by the aerial-perspective prelude, so
+// without it an unpatched terrain material would fail to compile.
+#ifdef VS_AERIAL
+  vsDbgAlbedo = diffuseColor.rgb;
+#endif
 `;
