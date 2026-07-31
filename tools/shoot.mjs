@@ -17,6 +17,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { capturePage } from './png.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = findChrome();
@@ -167,8 +168,8 @@ async function main() {
     }, args.settle);
 
     const file = path.join(outDir, `${name}.png`);
-    const dataUrl = await page.evaluate(() => window.VS.capture());
-    await writeFile(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    const shot = await capturePage(page);
+    await writeFile(file, shot.buffer);
     const stats = await page.evaluate(() => window.VS.stats());
     await page.evaluate(() => window.VS.thaw());
     report.shots.push({ name, file: path.relative(ROOT, file), stats });

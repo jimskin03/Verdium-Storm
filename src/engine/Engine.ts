@@ -153,6 +153,9 @@ export class Engine {
   stepManual(dt: number): void {
     this.elapsed += dt;
     this.frameCount++;
+    // Reset here too, otherwise a stepped burst reports the sum across every
+    // frame in the burst and the harness sees wildly inflated triangle counts.
+    this.renderer.info.reset();
     this.runSystems(dt);
   }
 

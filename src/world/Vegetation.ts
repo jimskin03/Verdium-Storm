@@ -124,11 +124,14 @@ export class Vegetation implements System {
       dead: 0x9a938a,
     };
 
+    // No vertexColors here: the geometry builders never write a `color`
+    // attribute, and three's color_vertex chunk would multiply by an absent
+    // attribute (zero) and render every tree solid black. Per-instance variation
+    // comes from instanceColor, which is a separate define and still applies.
     const barkMat = new THREE.MeshStandardMaterial({
       map: barkMap,
       normalMap: barkNormal,
       normalScale: new THREE.Vector2(1.5, 1.5),
-      vertexColors: true,
       roughness: 0.95,
       metalness: 0,
     });
@@ -138,7 +141,6 @@ export class Vegetation implements System {
     const leafMat = new THREE.MeshStandardMaterial({
       map: atlas.texture,
       alphaTest: 0.42,
-      vertexColors: true,
       side: THREE.DoubleSide,
       roughness: 0.78,
       metalness: 0,
@@ -328,13 +330,12 @@ export class Vegetation implements System {
     const leafMat = new THREE.MeshStandardMaterial({
       map: atlas.texture,
       alphaTest: 0.4,
-      vertexColors: true,
       side: THREE.DoubleSide,
       roughness: 0.82,
       metalness: 0,
     });
     patchFoliageMaterial(leafMat, { amplitude: 0.22, flutter: 0.045, translucency: 0.13 }, 'verdium-cover');
-    const woodMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b5a44, roughness: 0.95, metalness: 0 });
     patchFoliageMaterial(woodMat, { amplitude: 0, flutter: 0, translucency: 0 }, 'verdium-wood');
     this.disposables.push(leafMat, woodMat);
 

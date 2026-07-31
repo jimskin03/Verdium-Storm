@@ -21,6 +21,31 @@ export class RigBuilder {
     this.bones.push({ name, parent, pos: [x, y, z], rot });
     return this.bones.length - 1;
   }
+
+  /**
+   * Bind-pose position of a bone in model space.
+   *
+   * Geometry is authored in the bind pose, so a part attached to bone `i` has to
+   * be emitted around this point for the skin to deform about the right pivot.
+   * Only translations accumulate here: every bone whose bind rotation is
+   * non-zero (track links) is a leaf, so there is nothing below it to rotate.
+   */
+  world(i: number): [number, number, number] {
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    let cursor = i;
+    let guard = 0;
+    while (cursor >= 0 && guard++ < 64) {
+      const b = this.bones[cursor];
+      if (!b) break;
+      x += b.pos[0];
+      y += b.pos[1];
+      z += b.pos[2];
+      cursor = b.parent;
+    }
+    return [x, y, z];
+  }
 }
 
 /**
@@ -119,6 +144,19 @@ export interface RigDef {
   muzzle?: [number, number, number];
   recoilTravel: number;
   turretRate: number;
+  /** Gun elevation limits in radians; negative depresses below horizontal. */
+  elevMin: number;
+  elevMax: number;
+  /**
+   * Structures only. Everything above the poured apron hangs off this bone so
+   * the build-up animation can drive the superstructure out of the ground while
+   * the pad stays put.
+   */
+  riser?: number;
+  /** Height the riser sinks by at zero build progress. */
+  riseDepth: number;
+  /** Sliding door/shutter driven by `setActive`. */
+  door?: { bone: number; travel: [number, number, number]; rate: number };
   wheels: WheelSlot[];
   tracks: TrackSlot[];
   legs: LimbSlot[];
@@ -143,6 +181,9 @@ export function emptyRig(locomotion: RigDef['locomotion']): RigDef {
     hull: 0,
     recoilTravel: 0.35,
     turretRate: 1.9,
+    elevMin: -0.14,
+    elevMax: 0.4,
+    riseDepth: 0,
     wheels: [],
     tracks: [],
     legs: [],

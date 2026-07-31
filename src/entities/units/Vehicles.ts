@@ -347,7 +347,13 @@ function tank(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
   // Turret.
   const turret = rig.add('turret', hull, 0, 2.62, -0.1);
   def.turret = turret;
+  def.elevMin = -0.16;
+  def.elevMax = 0.34;
   b.bone(turret);
+  // Turret parts are authored about the turret ring; the push puts that local
+  // frame at the bone's bind position so the casting pivots where it should.
+  b.push();
+  b.move(...rig.world(turret));
   b.use(k.paint);
   const plan: Vec2[] = nod
     ? [[-1.75, -1.7], [1.75, -1.7], [1.45, 0.7], [0, 2.15], [-1.45, 0.7]]
@@ -395,22 +401,30 @@ function tank(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
   b.box(0, 1.36, -1.62, 0.5, 0.12, 0.1, 0.03);
 
   antenna(b, k, nod ? -1.3 : 1.3, 1.3, -1.4, 1.9, detail);
+  b.pop();
 
   // Barrel.
   const barrel = rig.add('barrel', turret, 0, 0.55, nod ? 2.25 : 1.85);
   def.barrel = barrel;
   def.muzzle = [0, 0, nod ? 4.7 : 4.3];
   b.bone(barrel);
+  b.push();
+  b.move(...rig.world(barrel));
   gunBarrel(b, k, nod ? 4.6 : 4.2, 0.2, true, detail);
+  b.pop();
 
+  b.bone(hull);
   stowage(b, k, nod ? -1.55 : 1.55, 2.65, -2.0, detail);
 
   // Blow-off panel: the engine deck hatch swings loose as damage mounts.
   const panel = rig.add('panelA', hull, 0, 2.85, -1.55);
   def.panels.push(panel);
   b.bone(panel);
+  b.push();
+  b.move(...rig.world(panel));
   b.use(k.paint2);
   b.box(0, 0.05, -0.5, 2.6, 0.14, 1.0, 0.04);
+  b.pop();
   b.bone(hull);
 
   return { builder: b, def };
@@ -464,7 +478,11 @@ function artillery(b: PartBuilder, faction: Faction, detail: number): VehicleBui
 
   const turret = rig.add('turret', hull, 0, 2.75, -1.1);
   def.turret = turret;
+  def.elevMin = 0.06;
+  def.elevMax = 0.92;
   b.bone(turret);
+  b.push();
+  b.move(...rig.world(turret));
   b.use(k.paint2);
   b.prismY(trap(2.4, 1.5, 2.2) as Vec2[], 0.9, 0.12, 0, 0.35, 0);
   b.use(k.dmetal);
@@ -473,12 +491,15 @@ function artillery(b: PartBuilder, faction: Faction, detail: number): VehicleBui
   b.use(k.teamLight);
   b.box(0, 1.0, -1.0, 0.44, 0.1, 0.08, 0.02);
   antenna(b, k, 1.05, 0.8, -0.9, 2.1, detail);
+  b.pop();
 
   // Cradle + very long tube.
   const barrel = rig.add('barrel', turret, 0, 0.85, 0.5);
   def.barrel = barrel;
   def.muzzle = [0, 0, nod ? 7.6 : 7.0];
   b.bone(barrel);
+  b.push();
+  b.move(...rig.world(barrel));
   b.use(k.dark);
   b.box(0, 0, 0.55, 0.9, 0.75, 2.0, 0.08);
   if (detail > 0) {
@@ -486,13 +507,17 @@ function artillery(b: PartBuilder, faction: Faction, detail: number): VehicleBui
     for (const s of [-1, 1]) b.tube(s * 0.5, 0.28, 1.4, 0.11, 0.11, 1.9, 7);
   }
   gunBarrel(b, k, nod ? 7.4 : 6.8, 0.19, true, detail);
+  b.pop();
   b.bone(hull);
 
   const panel = rig.add('panelA', hull, 0, 2.7, 2.0);
   def.panels.push(panel);
   b.bone(panel);
+  b.push();
+  b.move(...rig.world(panel));
   b.use(k.paint2);
   b.box(0, 0.05, 0, 2.4, 0.14, 1.4, 0.04);
+  b.pop();
   b.bone(hull);
 
   return { builder: b, def };
@@ -538,7 +563,11 @@ function aa(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
 
   const turret = rig.add('turret', hull, 0, 2.3, -0.2);
   def.turret = turret;
+  def.elevMin = -0.05;
+  def.elevMax = 1.25;
   b.bone(turret);
+  b.push();
+  b.move(...rig.world(turret));
 
   if (nod) {
     // Nod: an angular boxed missile cell bank.
@@ -552,11 +581,14 @@ function aa(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
     b.use(k.paint2);
     b.prismY(ngon(1.0, 8) as Vec2[], 0.35, 0.08, 0, 0.78, 0);
   }
+  b.pop();
 
   // Search radar — small, spinning, on a mast: the AA read.
   const dish = rig.add('radar', turret, nod ? -1.05 : 1.05, 1.0, -0.85);
   def.spinners.push({ bone: dish, rate: 2.2, axis: 'y' });
   b.bone(dish);
+  b.push();
+  b.move(...rig.world(dish));
   b.use(k.dmetal);
   b.tube(0, 0.3, 0, 0.09, 0.11, 0.6, 6);
   b.use(k.metal);
@@ -565,16 +597,22 @@ function aa(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
   b.rotX(-0.35);
   b.prism(trap(1.15, 0.5, 0.75) as Vec2[], 0.08, 0.03);
   b.pop();
-  b.bone(turret);
+  b.pop();
 
+  b.bone(turret);
+  b.push();
+  b.move(...rig.world(turret));
   for (const s of [-1, 1]) chevron(b, k, s * (nod ? 1.2 : 1.3), 0.35, -0.35, 0.46, s);
   b.use(k.teamLight);
   b.box(0, 0.62, -1.15, 0.4, 0.1, 0.08, 0.02);
+  b.pop();
 
   const barrel = rig.add('barrel', turret, 0, nod ? 0.85 : 0.62, 0.5);
   def.barrel = barrel;
   def.muzzle = [0, 0, nod ? 1.6 : 3.4];
   b.bone(barrel);
+  b.push();
+  b.move(...rig.world(barrel));
   if (nod) {
     // Four launch tubes in a 2x2 block.
     b.use(k.dark);
