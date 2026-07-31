@@ -427,6 +427,9 @@ function tank(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
   b.pop();
   b.bone(hull);
 
+  // The runtime skeleton is instantiated from this table, so it has to travel
+  // with the definition rather than staying local to the builder.
+  def.bones = rig.bones;
   return { builder: b, def };
 }
 
@@ -520,6 +523,9 @@ function artillery(b: PartBuilder, faction: Faction, detail: number): VehicleBui
   b.pop();
   b.bone(hull);
 
+  // The runtime skeleton is instantiated from this table, so it has to travel
+  // with the definition rather than staying local to the builder.
+  def.bones = rig.bones;
   return { builder: b, def };
 }
 
@@ -643,6 +649,9 @@ function aa(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
   b.bone(hull);
   antenna(b, k, -1.55, 2.3, -2.6, 1.8, detail);
 
+  // The runtime skeleton is instantiated from this table, so it has to travel
+  // with the definition rather than staying local to the builder.
+  def.bones = rig.bones;
   return { builder: b, def };
 }
 
@@ -737,6 +746,9 @@ function scout(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
   b.bone(hull);
   antenna(b, k, nod ? -0.95 : 0.95, 1.6, -2.0, 2.2, detail);
 
+  // The runtime skeleton is instantiated from this table, so it has to travel
+  // with the definition rather than staying local to the builder.
+  def.bones = rig.bones;
   return { builder: b, def };
 }
 
@@ -825,6 +837,9 @@ function harvester(b: PartBuilder, faction: Faction, detail: number): VehicleBui
   }
 
   antenna(b, k, 1.9, 5.4, -3.4, 2.4, detail);
+  // The runtime skeleton is instantiated from this table, so it has to travel
+  // with the definition rather than staying local to the builder.
+  def.bones = rig.bones;
   return { builder: b, def };
 }
 

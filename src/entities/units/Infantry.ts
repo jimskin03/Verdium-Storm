@@ -284,6 +284,7 @@ function soldier(
     b.box(-0.24, 1.44, -0.24, 0.16, 0.2, 0.14, 0.04);
   }
 
+  def.bones = rig.bones;
   return { builder: b, def };
 }
 

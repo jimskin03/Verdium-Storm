@@ -80,9 +80,18 @@ function windWeight(p: THREE.Vector3, height: number, radius: number, depth: num
   return clamp(Math.pow(vertical, 1.35) * 0.62 + lateral * 0.3 + depth * 0.12, 0, 1.3);
 }
 
+/**
+ * Vertex colour on every builder in this stream is a *modulation* of the bound
+ * albedo map, not a colour in its own right — it averages to roughly one, so
+ * enabling `vertexColors` adds crevice occlusion and canopy depth without
+ * darkening the material's overall tone.
+ */
 interface BarkStyle {
-  base: THREE.Color;
-  crevice: THREE.Color;
+  /** Modulation on a ridge crest and at the bottom of a crevice. */
+  crest: number;
+  crevice: number;
+  /** Per-channel hue push at the crest, around 1. */
+  tint: THREE.Color;
   /** Horizontal lenticel banding, for birch. */
   banding: number;
 }
@@ -96,7 +105,9 @@ function limbColorFn(style: BarkStyle, height: number, rng: () => number) {
       let k = 0.5 + ridge * 3.4;
       // Ambient occlusion into the root flare and toward the crown interior.
       k *= 0.62 + 0.38 * clamp(y / (height * 0.35), 0, 1);
-      scratch.copy(style.crevice).lerp(style.base, clamp(k, 0, 1));
+      scratch.copy(style.tint).multiplyScalar(
+        style.crevice + (style.crest - style.crevice) * clamp(k, 0, 1),
+      );
       if (style.banding > 0) {
         const band = Math.sin(y * 2.6 + Math.sin(angle * 3.0 + seedA) * 0.9 + seedA);
         if (band > 0.72) scratch.multiplyScalar(0.34);
@@ -185,28 +196,28 @@ const CONFIG: Record<TreeKind, SpeciesConfig> = {
   pine: {
     height: 23,
     radius: 5.2,
-    bark: { base: new THREE.Color(0.30, 0.20, 0.13), crevice: new THREE.Color(0.09, 0.06, 0.04), banding: 0 },
+    bark: { tint: new THREE.Color(1.429, 0.952, 0.619), crest: 0.21, crevice: 0.063, banding: 0 },
     leafTint: new THREE.Color(0.52, 0.68, 0.46),
     cells: [],
   },
   oak: {
     height: 17,
     radius: 7.6,
-    bark: { base: new THREE.Color(0.31, 0.26, 0.20), crevice: new THREE.Color(0.08, 0.06, 0.05), banding: 0 },
+    bark: { tint: new THREE.Color(1.208, 1.013, 0.779), crest: 0.257, crevice: 0.063, banding: 0 },
     leafTint: new THREE.Color(0.74, 0.82, 0.52),
     cells: [],
   },
   birch: {
     height: 19,
     radius: 4.4,
-    bark: { base: new THREE.Color(0.86, 0.86, 0.80), crevice: new THREE.Color(0.42, 0.42, 0.38), banding: 1 },
+    bark: { tint: new THREE.Color(1.024, 1.024, 0.952), crest: 0.840, crevice: 0.407, banding: 1 },
     leafTint: new THREE.Color(0.82, 0.88, 0.56),
     cells: [],
   },
   dead: {
     height: 13,
     radius: 5.4,
-    bark: { base: new THREE.Color(0.32, 0.29, 0.25), crevice: new THREE.Color(0.10, 0.09, 0.08), banding: 0 },
+    bark: { tint: new THREE.Color(1.116, 1.012, 0.872), crest: 0.287, crevice: 0.090, banding: 0 },
     leafTint: new THREE.Color(0.4, 0.35, 0.25),
     cells: [],
   },

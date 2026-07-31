@@ -88,7 +88,13 @@ vec3 sharpenDelta(vec2 uv, float sharpness) {
   vec3 w = -amp * sharpness;
   vec3 sharp = (b * w + d * w + f * w + h * w + e) / (1.0 + 4.0 * w);
 
-  return fromFilterSpace(saturate(sharp)) - fromFilterSpace(e);
+  // The encoding is asymptotic, so a filtered value that reaches 1.0 decodes to
+  // infinity. Capping just below, then bounding the correction as a fraction of
+  // the original, is what stops an isolated highlight — the sun disc against
+  // sky — from sharpening into a firefly that then feeds the bloom chain.
+  vec3 result = fromFilterSpace(clamp(sharp, vec3(0.0), vec3(0.995)));
+  vec3 base = fromFilterSpace(e);
+  return clamp(result - base, -base * 0.75, base * 0.75 + 0.02);
 }
 
 void main() {
@@ -180,7 +186,7 @@ void main() {
   // Peaks in the mid-tones and falls away in both the toe and the shoulder,
   // which is how film actually behaves; uniform grain reads as video noise.
   {
-    float lum = luminance(encoded);
+    float lum = vsLuminance(encoded);
     float response = 4.0 * lum * (1.0 - lum);
     float n = hash12(gl_FragCoord.xy + vec2(fract(uTime * 37.13) * 512.0, fract(uTime * 17.71) * 512.0));
     float m = hash12(gl_FragCoord.xy + vec2(fract(uTime * 11.37) * 512.0 + 91.7, fract(uTime * 23.19) * 512.0 + 13.3));

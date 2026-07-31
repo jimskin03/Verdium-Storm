@@ -305,8 +305,10 @@ vec3 stars(vec3 rd) {
       float mag = pow((bright - 0.90) * 10.0, 3.0);
       vec2 d = o + h - f;
       float r = dot(d, d);
-      float tw = 0.75 + 0.25 * sin(uSkyParams.z * 0.0 + bright * 91.0);
+      float tw = 0.75 + 0.25 * sin(bright * 91.0);
       float star = exp(-r * 190.0) * mag * tw;
+      // Deliberately unanimated: a twinkle that moves with the frame counter
+      // makes every screenshot comparison noisy for no visual gain at this size.
       v += star;
       float temp = vsHash21(id + o + 51.9);
       tint = mix(vec3(1.0, 0.86, 0.72), vec3(0.76, 0.85, 1.0), temp);
@@ -455,8 +457,8 @@ void main() {
 `;
 
 export interface SkyRendererOptions {
+  /** Adds the second density slab and the wider self-shadow march. */
   volumetricClouds: boolean;
-  envResolution: number;
 }
 
 export class SkyRenderer {
@@ -571,12 +573,20 @@ export class SkyRenderer {
     this.domeMesh.renderOrder = -1000;
     this.domeMesh.matrixAutoUpdate = false;
 
+    // The probe renders the same dome from the origin. Scaled well clear of the
+    // cube camera's near plane so no face clips its own sky.
     this.probeMesh = new THREE.Mesh(domeGeometry, this.domeMaterial);
     this.probeMesh.frustumCulled = false;
+    this.probeMesh.scale.setScalar(1000);
     this.probeScene.add(this.probeMesh);
 
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.pmrem.compileEquirectangularShader();
+  }
+
+  /** Camera altitude in kilometres; shifts the sky-view LUT's origin. */
+  setCameraAltitude(km: number): void {
+    (this.skyViewMat.uniforms.uCameraAltitude as THREE.IUniform).value = km;
   }
 
   /** Bakes the sun-independent LUTs and the cloud field. Call once. */

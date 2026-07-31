@@ -63,11 +63,11 @@ void main() {
   vec3 b3 = (d + e + g + h) * 0.25;
   vec3 b4 = (e + f + h + i) * 0.25;
 
-  float w0 = 0.5   / (1.0 + luminance(b0));
-  float w1 = 0.125 / (1.0 + luminance(b1));
-  float w2 = 0.125 / (1.0 + luminance(b2));
-  float w3 = 0.125 / (1.0 + luminance(b3));
-  float w4 = 0.125 / (1.0 + luminance(b4));
+  float w0 = 0.5   / (1.0 + vsLuminance(b0));
+  float w1 = 0.125 / (1.0 + vsLuminance(b1));
+  float w2 = 0.125 / (1.0 + vsLuminance(b2));
+  float w3 = 0.125 / (1.0 + vsLuminance(b3));
+  float w4 = 0.125 / (1.0 + vsLuminance(b4));
 
   vec3 color = (b0 * w0 + b1 * w1 + b2 * w2 + b3 * w3 + b4 * w4) / (w0 + w1 + w2 + w3 + w4);
 

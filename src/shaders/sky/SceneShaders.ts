@@ -45,7 +45,7 @@ export const skyUniforms = {
   uCloudTex: { value: null as THREE.Texture | null },
   uGroundTex: { value: whiteGroundTexture() as THREE.Texture },
 
-  /** x: sky radiance gain, y: camera altitude (km), z: time, w: star gain. */
+  /** x: sky radiance gain, y: camera altitude (km), z: night 0..1, w: star gain. */
   uSkyParams: { value: new THREE.Vector4(1, 0.06, 0, 0) },
   /** x: sun disc gain, y: aureole gain, z: cloud lighting gain, w: unused. */
   uDomeParams: { value: new THREE.Vector4(28, 0.6, 1, 0) },
@@ -57,7 +57,7 @@ export const skyUniforms = {
   /** xy: wind offset in tile space, z: shadow strength, w: density gain. */
   uCloudWind: { value: new THREE.Vector4(0, 0, 0.55, 1) },
 
-  /** x: 1/worldSize, y: unused, z: sky-AO strength, w: terrain height scale. */
+  /** x: 1/worldSize, y: height decode offset, z: sky-AO strength, w: height scale. */
   uGroundParams: { value: new THREE.Vector4(1 / 1024, 0, 0.85, 300) },
 
   /** x: haze density, y: haze falloff, z: mist density, w: mist falloff. */
@@ -94,14 +94,40 @@ export const skyState = {
   keyDirection: new THREE.Vector3(0.4, 0.6, 0.35).normalize(),
   keyColor: new THREE.Color(1, 1, 1),
   keyIntensity: 3.5,
+  /** Anti-sun sky fill: cool, unshadowed, keeps shadow sides from going flat. */
+  fillDirection: new THREE.Vector3(-0.4, 0.42, -0.35).normalize(),
+  fillColor: new THREE.Color(0.55, 0.68, 0.92),
+  fillIntensity: 0.8,
   /** Warm light kicked back up out of the ground, opposite the key. */
+  bounceDirection: new THREE.Vector3(-0.3, -0.85, -0.26).normalize(),
   bounceColor: new THREE.Color(0.4, 0.36, 0.26),
   bounceIntensity: 0.5,
   /** Cool sky fill used when no environment probe is available yet. */
   skyColor: new THREE.Color(0.35, 0.45, 0.6),
   /** 0 by day, 1 in full night — drives stars, moonlight and fog colour. */
   night: 0,
+  /** Bumped whenever the atmosphere rewrites the values above. */
+  revision: 0,
 };
+
+/**
+ * True when the GL context is a software rasteriser (SwiftShader / llvmpipe).
+ *
+ * The screenshot harness forces `?quality=ultra` regardless of the device, so
+ * without this a review run asks a CPU rasteriser for four 4096² cascades and
+ * a 24-tap PCSS filter, and the tab dies before it produces a frame. Shadow
+ * resolution and filter width are clamped instead; everything else stays.
+ */
+export function detectSoftwareRenderer(renderer: THREE.WebGLRenderer): boolean {
+  try {
+    const gl = renderer.getContext();
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+    return /swiftshader|llvmpipe|software|basic render/i.test(name);
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // GLSL shared by the dome and by every patched scene material
@@ -188,11 +214,19 @@ vec4 vsGroundSample(vec3 worldPos) {
   return texture2D(uGroundTex, worldPos.xz * uGroundParams.x + 0.5);
 }
 
+/** Decodes the ground height packed into the occlusion texture's blue channel. */
+float vsGroundHeight(vec4 groundSample) {
+  return groundSample.b * uGroundParams.w - uGroundParams.y;
+}
+
 /** Terrain self-shadowing + sky occlusion, faded out with height above ground. */
 float vsTerrainShadow(vec3 worldPos, vec4 groundSample) {
-  float above = worldPos.y - groundSample.b * uGroundParams.w;
+  float above = worldPos.y - vsGroundHeight(groundSample);
   float fade = 1.0 - smoothstep(4.0, 70.0, above);
-  return mix(1.0, groundSample.r, fade);
+  // At night the marched sun channel is zero everywhere, which would also kill
+  // the moon key; hand the terrain back to the shadow maps instead.
+  float visible = mix(groundSample.r, 1.0, uSkyParams.z);
+  return mix(1.0, visible, fade);
 }
 
 #endif
@@ -346,9 +380,24 @@ function isLitMaterial(material: THREE.Material): boolean {
       m.isMeshPhysicalMaterial ||
       m.isMeshPhongMaterial ||
       m.isMeshLambertMaterial ||
-      m.isMeshToonMaterial ||
-      ((material as THREE.ShaderMaterial).isShaderMaterial && (material as THREE.ShaderMaterial).lights),
+      m.isMeshToonMaterial,
   );
+}
+
+/**
+ * Only three's own mesh materials are patched.
+ *
+ * Injection works by rewriting `#include` chunks and by declaring the shared
+ * uniform block, so a hand-written ShaderMaterial is off limits twice over: it
+ * has no chunks to rewrite, and it very likely declares its own `uSunDir` —
+ * which would collide and fail to compile. Streams that write raw shaders
+ * (water, decals, particles) handle their own fog and sun, by design.
+ */
+function isPatchable(material: THREE.Material): boolean {
+  const m = material as unknown as Record<string, boolean>;
+  if (m.isRawShaderMaterial || m.isShaderMaterial) return false;
+  if (m.isMeshDepthMaterial || m.isMeshDistanceMaterial || m.isMeshNormalMaterial) return false;
+  return isLitMaterial(material) || Boolean(m.isMeshBasicMaterial);
 }
 
 function injectVertex(source: string): string {
@@ -367,6 +416,28 @@ function injectVertex(source: string): string {
     out = out.replace('#include <project_vertex>', '#include <project_vertex>\n' + worldPos);
   } else {
     out = out.replace('void main() {', 'void main() {\n  vVsWorld = ( modelMatrix * vec4( position, 1.0 ) ).xyz;\n');
+  }
+  return out;
+}
+
+/**
+ * Drops uniform declarations the target shader already makes for itself.
+ *
+ * The prelude is prepended verbatim to whichever material is being patched, and
+ * several streams (water, foliage, particles) declare `uSunDir` on their own.
+ * GLSL rejects the second declaration as a redefinition and fails the entire
+ * compile, so filter against what the source already declares rather than
+ * assuming this is the only declarer.
+ */
+function stripRedundantDeclarations(source: string, block: string): string {
+  const names: string[] = [];
+  for (const line of block.split('\n')) {
+    const declared = /^\s*uniform\s+\w+\s+(\w+)\s*;/.exec(line);
+    if (declared) names.push(declared[1]);
+  }
+  let out = source;
+  for (const name of names) {
+    out = out.replace(new RegExp(`^\\s*uniform\\s+\\w+\\s+${name}\\s*;\\s*$`, 'gm'), '');
   }
   return out;
 }
@@ -394,7 +465,10 @@ const AERIAL_APPLY = /* glsl */ `
 `;
 
 function injectFragment(source: string, lit: boolean): string {
-  let out = fragmentPrelude(lit) + '\n' + source;
+  // The prelude declares the atmosphere uniforms and must come first, since its
+  // own helpers reference them. Several streams declare `uSunDir` for
+  // themselves, so drop those now-duplicate declarations from the source.
+  let out = fragmentPrelude(lit) + '\n' + stripRedundantDeclarations(source, GLSL_AERIAL_UNIFORMS);
   if (out.includes('#include <tonemapping_fragment>')) {
     out = out.replace('#include <tonemapping_fragment>', AERIAL_APPLY + '\n\t#include <tonemapping_fragment>');
     out = out.replace('#include <fog_fragment>', '');
@@ -409,7 +483,7 @@ const AO_APPLY = /* glsl */ `
   #if defined( RE_IndirectDiffuse )
   {
     vec4 vsG = vsGroundSample( vVsWorld );
-    float vsAbove = vVsWorld.y - vsG.b * uGroundParams.w;
+    float vsAbove = vVsWorld.y - vsGroundHeight( vsG );
     float vsFade = 1.0 - smoothstep( 2.0, 55.0, vsAbove );
     float vsAo = mix( 1.0, mix( 1.0, vsG.g, uGroundParams.z ), vsFade );
     irradiance *= vsAo;
@@ -423,9 +497,9 @@ const AO_APPLY = /* glsl */ `
 
 function patchMaterial(material: THREE.Material): void {
   if (patched.has(material)) return;
-  if ((material as THREE.RawShaderMaterial).isRawShaderMaterial) return;
   if (material.userData?.vsNoPatch) return;
   patched.add(material);
+  if (!isPatchable(material)) return;
 
   const lit = isLitMaterial(material);
   const previous = material.onBeforeCompile;

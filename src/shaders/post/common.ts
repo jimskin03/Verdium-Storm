@@ -21,13 +21,21 @@ void main() {
 }
 `;
 
-/** Colour space, depth reconstruction and noise helpers. */
+/**
+ * Colour space, depth reconstruction and noise helpers.
+ *
+ * Include-guarded: several passes splice this in alongside other chunks that
+ * also pull it in, and GLSL rejects a redefined function body outright, which
+ * fails the whole shader rather than the duplicate line.
+ */
 export const POST_COMMON = /* glsl */ `
+#ifndef VS_POST_COMMON_INCLUDED
+#define VS_POST_COMMON_INCLUDED
 #define saturate(a) clamp(a, 0.0, 1.0)
 const float PI = 3.14159265359;
 const float HALF_PI = 1.57079632679;
 
-float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float vsLuminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 vec3 rgbToYCoCg(vec3 c) {
   return vec3(
@@ -91,6 +99,7 @@ vec3 reconstructViewNormal(sampler2D depthTex, vec2 uv, vec3 P, vec2 texel, mat4
   float len = length(n);
   return len > 1e-8 ? n / len : vec3(0.0, 0.0, 1.0);
 }
+#endif
 `;
 
 /**

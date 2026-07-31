@@ -41,7 +41,7 @@ void main() {
     vec3 c = texture2D(tColor, vUv + offset).rgb;
     // Weighting by 1/(1+luma) stops the sun and specular hits from producing a
     // hard bokeh donut in what is supposed to be a soft falloff.
-    float w = 1.0 / (1.0 + luminance(c) * 0.25);
+    float w = 1.0 / (1.0 + vsLuminance(c) * 0.25);
     sum += c * w;
     weightSum += w;
   }
