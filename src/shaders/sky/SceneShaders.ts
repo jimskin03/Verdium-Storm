@@ -163,8 +163,29 @@ export const GLSL_AERIAL = /* glsl */ `
 #ifndef VS_AERIAL_INCLUDED
 #define VS_AERIAL_INCLUDED
 
+/**
+ * Inscattered radiance for a view ray, read from the sky-view LUT.
+ *
+ * The elevation is clamped to the horizon, and that clamp is the whole reason
+ * this is a function rather than a texture fetch. Below the horizon the LUT does
+ * not hold sky at all: those texels are the planet's mean ground albedo lit by
+ * the sun, which is what the sky model needs for its own bounce term and for the
+ * lower half of the environment probe. An RTS camera looks *down*, so without the
+ * clamp every fogged surface in the frame inscatters the planet albedo — a warm
+ * tan — and the whole image silts up with it.
+ *
+ * Clamping is not a fudge here, it is the correct limit. A view ray to a surface
+ * a few kilometres away stays at essentially constant altitude, so the medium
+ * along it matches the medium along the horizon ray at the same azimuth, and the
+ * saturated radiance of that horizontal path is exactly what the horizon row
+ * holds. Pairing it with the per-channel (1 - tr) below reproduces the short-range
+ * behaviour too: at small optical depth L * (1 - tr) tends to (S / ext) * od * ext,
+ * which is the blue-dominant source function, so near geometry picks up a blue
+ * shift and far geometry saturates to the horizon. That is aerial perspective.
+ */
 vec3 vsSkyLookup(vec3 rd) {
-  return texture2D(uSkyView, vsSkyViewUv(rd, uSunDir)).rgb * uSkyParams.x * uFogB.x;
+  vec3 horizonward = vec3(rd.x, max(rd.y, 0.0), rd.z);
+  return texture2D(uSkyView, vsSkyViewUv(horizonward, uSunDir)).rgb * uSkyParams.x * uFogB.x;
 }
 
 float vsLayerOpticalDepth(float y0, float y1, float dist, float density, float falloff) {

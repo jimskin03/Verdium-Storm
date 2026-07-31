@@ -29,6 +29,12 @@ import { shaderConfig, skyState, skyUniforms } from '@/shaders/sky/SceneShaders'
  * it, sub-texel movement of the projection makes every edge shimmer.
  */
 
+/** Straight up; the terrain bounce shines down from here onto up-facing ground. */
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** Mean ground albedo, used to tint reflected sunlight. */
+const GROUND_ALBEDO = new THREE.Color(0.46, 0.40, 0.30);
+
 /** Furthest distance that receives a shadow, in world units. */
 const SHADOW_DISTANCE = 900;
 /** Blend between uniform and logarithmic cascade splits; 0.75 favours near detail. */
@@ -43,6 +49,7 @@ export class Lighting implements System {
   private cascades: THREE.DirectionalLight[] = [];
   private fill!: THREE.DirectionalLight;
   private bounce!: THREE.DirectionalLight;
+  private terrainBounce!: THREE.DirectionalLight;
   private ambient!: THREE.HemisphereLight;
 
   private splits: number[] = [];
@@ -87,6 +94,19 @@ export class Lighting implements System {
     this.bounce.name = 'ground-bounce';
     ctx.scene.add(this.bounce, this.bounce.target);
 
+    // Warm bounce onto *up-facing* surfaces.
+    //
+    // Everything else reaching shaded ground is cool: the fill is sky-blue, the
+    // hemisphere light hands up-facing normals its sky colour, and `bounce`
+    // above sits below the surface shining upward, so it only catches undersides.
+    // Real shaded ground is also lit by sunlight bouncing off the sunlit terrain
+    // around it, and without that term a shaded valley renders as saturated blue.
+    // A dim warm light pointing straight down is the standard cheap stand-in for
+    // that inter-reflection.
+    this.terrainBounce = new THREE.DirectionalLight(0xffd8a8, 0.0);
+    this.terrainBounce.name = 'terrain-bounce';
+    ctx.scene.add(this.terrainBounce, this.terrainBounce.target);
+
     // Floor under the IBL so nothing ever reads as pure black, and so the scene
     // is still lit before the first environment probe has been filtered.
     this.ambient = new THREE.HemisphereLight(0x9fc0e0, 0x4a4436, 0.35);
@@ -116,6 +136,13 @@ export class Lighting implements System {
       this.bounce.color.copy(skyState.bounceColor);
       this.bounce.intensity = skyState.bounceIntensity;
 
+      // Bounce carries the sun's colour tinted by ground albedo, and scales with
+      // how much sun the terrain is actually receiving — near-zero at night,
+      // strongest at midday when there is most sunlit ground to reflect off.
+      this.terrainBounce.color.copy(skyState.keyColor).multiply(GROUND_ALBEDO);
+      const sunUp = Math.max(0, skyState.keyDirection.y);
+      this.terrainBounce.intensity = 0.55 * sunUp * (1 - skyState.night);
+
       // The hemisphere floor tracks night so the world darkens without ever
       // clipping to black, which reads as broken rather than as night.
       this.ambient.color.copy(skyState.skyColor);
@@ -126,6 +153,7 @@ export class Lighting implements System {
     // so they stay centred on whatever the player is looking at.
     this.aimAlong(this.fill, skyState.fillDirection);
     this.aimAlong(this.bounce, skyState.bounceDirection);
+    this.aimAlong(this.terrainBounce, UP);
   }
 
   /** Places a light so it shines *from* `direction` toward the camera's focus. */
@@ -205,7 +233,12 @@ export class Lighting implements System {
       light.shadow.map?.dispose();
       this.ctx?.scene.remove(light, light.target);
     }
-    this.ctx?.scene.remove(this.fill, this.fill.target, this.bounce, this.bounce.target, this.ambient);
+    this.ctx?.scene.remove(
+      this.fill, this.fill.target,
+      this.bounce, this.bounce.target,
+      this.terrainBounce, this.terrainBounce.target,
+      this.ambient,
+    );
   }
 }
 

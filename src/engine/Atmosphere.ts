@@ -139,8 +139,11 @@ export class Atmosphere implements System, EnvironmentService {
     skyUniforms.uSkyParams.value.y = BASE_ALTITUDE_KM;
 
     // Fallback for anything this stream does not patch (raw shader materials
-    // owned by other streams read `scene.fog` directly).
-    this.fog = new THREE.FogExp2(0x93a9b8, 0.0011);
+    // owned by other streams read `scene.fog` directly). The density is fitted
+    // so FogExp2's squared-distance curve crosses the patched materials' haze at
+    // ~1 km; it has to move whenever `uFogA.x` does, or water and terrain
+    // disagree about where the horizon is.
+    this.fog = new THREE.FogExp2(0x93a9b8, 0.00078);
     scene.fog = this.fog;
     scene.environmentIntensity = 1.0;
 
@@ -355,11 +358,21 @@ export class Atmosphere implements System, EnvironmentService {
    * units while the playfield is 1024, so the boundary term adds a second dose
    * past 1300 units to make sure the outer massif reads as distance rather than
    * as painted cardboard.
+   *
+   * The densities are ~2x lower than they used to be, and that is a consequence
+   * of a fix rather than a taste change. They were originally fitted while the
+   * inscatter colour was wrong: aerial perspective read the sky-view LUT's
+   * below-horizon rows, which hold the planet's ground albedo, so the veil was
+   * both tan and unnaturally dark. A dark inscatter buys density for free — you
+   * can pile on optical depth before the image looks hazy. Once vsSkyLookup was
+   * clamped to the horizon and the inscatter became real sky, about 2.5x
+   * brighter in luminance, the same optical depth turned the playfield to milk.
+   * Density and inscatter brightness trade off directly; tune them as a pair.
    */
   private configureFog(): void {
-    skyUniforms.uFogA.value.set(0.00132, 1 / 300, 0.006, 1 / 34);
+    skyUniforms.uFogA.value.set(0.00064, 1 / 300, 0.0024, 1 / 34);
     skyUniforms.uFogExt.value.set(0.72, 0.94, 1.42);
-    skyUniforms.uFogB.value.set(1.0, 1300, 1.45, 0.85);
+    skyUniforms.uFogB.value.set(1.0, 1300, 1.7, 0.85);
   }
 
   private configureClouds(volumetric: boolean, software: boolean): void {
