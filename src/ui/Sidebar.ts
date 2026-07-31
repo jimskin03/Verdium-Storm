@@ -182,11 +182,17 @@ export class Sidebar {
     this.signature = '';
   }
 
-  /** The build options this tab shows, in the order the simulation reports them. */
+  /**
+   * The build options this tab shows, in the order the simulation reports them.
+   *
+   * Copied, never aliased: the simulation is free to hand back a scratch array
+   * it reuses for the next call, and this list has to survive a second call for
+   * the other production kind.
+   */
   private options(game: GameStateService): BuildOption[] {
     const tab = TABS.find((t) => t.id === this.tab)!;
     const list = game.buildOptions(tab.kind);
-    if (tab.kind === 'building') return list;
+    if (tab.kind === 'building') return list.slice();
     return list.filter((o) => (this.tab === 'infantry' ? INFANTRY.has(o.id) : !INFANTRY.has(o.id)));
   }
 
@@ -284,7 +290,8 @@ export class Sidebar {
     const cameoNode = icon('cameo', root, cameo(option.id as UnitType, this.theme.accent, 128));
     div('plinth', root);
     const name = div('name', root);
-    name.textContent = option.label;
+    // The display face is caps-only; mixed-case copy would fall back per glyph.
+    name.textContent = option.label.toUpperCase();
 
     const sweep = div('sweep', root);
     const pct = div('pct', root);
@@ -343,20 +350,20 @@ export class Sidebar {
     if (!view) return;
     const o = view.option;
     this.tooltip.show(anchor, {
-      title: o.label,
+      title: o.label.toUpperCase(),
       stats: [
         { label: 'COST', value: group(o.cost), credit: true },
         { label: 'BUILD', value: `${Math.round(o.buildTime)}S` },
         { label: 'QUEUED', value: String(o.queued) },
       ],
-      why: o.readyToPlace ? 'READY — CLICK TO PLACE' : o.lockedReason,
+      why: o.readyToPlace ? 'READY — CLICK TO PLACE' : o.lockedReason?.toUpperCase(),
     });
   }
 
   private updateActive(game: GameStateService): void {
     // Prefer whatever the visible tab is producing; fall back to the other
     // queue so the strip is never dead while something is being built.
-    const pools = [this.options(game), game.buildOptions(this.tab === 'structures' ? 'unit' : 'building')];
+    const pools = [this.options(game), game.buildOptions(this.tab === 'structures' ? 'unit' : 'building').slice()];
     let chosen: BuildOption | null = null;
     for (const pool of pools) {
       for (const o of pool) {
@@ -377,7 +384,7 @@ export class Sidebar {
 
     this.activeId = chosen.id;
     setIcon(this.activeIcon, cameo(chosen.id as UnitType, this.theme.accent, 96));
-    setText(this.activeName, chosen.label);
+    setText(this.activeName, chosen.label.toUpperCase());
     const remaining = Math.max(0, chosen.buildTime * (1 - chosen.progress));
     setText(
       this.activeEta,

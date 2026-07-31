@@ -17,7 +17,7 @@ export interface ShotPreset {
 
 export type ShotPresetName =
   | 'overview' | 'base' | 'battle' | 'closeup' | 'terrain'
-  | 'water' | 'vegetation' | 'sunset' | 'skyline';
+  | 'water' | 'vegetation' | 'sunset' | 'skyline' | 'vfx';
 
 export const SHOT_PRESETS: Record<ShotPresetName, ShotPreset> = {
   overview: {
@@ -59,5 +59,15 @@ export const SHOT_PRESETS: Record<ShotPresetName, ShotPreset> = {
   skyline: {
     target: [0, 0], distance: 420, yaw: Math.PI * 0.1, pitch: 0.24,
     description: 'Horizon — sky gradient, clouds, distance fog, fog banding',
+  },
+  // Kept last: enabling the showcase is sticky for the rest of the session, so
+  // any preset shot after it would also see the demo loop running.
+  vfx: {
+    target: [0, 0], distance: 118, yaw: Math.PI * 0.78, pitch: 0.42,
+    description: 'Effects showcase — explosions, tracers, impacts, smoke, embers',
+    apply: (engine) => {
+      const fx = engine.get('effects') as unknown as { setShowcase?: (on: boolean) => void } | undefined;
+      fx?.setShowcase?.(true);
+    },
   },
 };

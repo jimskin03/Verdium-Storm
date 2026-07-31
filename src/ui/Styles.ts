@@ -545,6 +545,20 @@ function css(): string {
   position: absolute; inset: 0;
   background: repeating-linear-gradient(0deg, rgba(255,255,255,.04) 0 1px, transparent 1px 3px);
 }
+/* Framing marks inside the portrait: reads as a targeting feed, not a photo. */
+.vs-portrait .grid {
+  position: absolute; inset: 5px; pointer-events: none;
+  background:
+    linear-gradient(90deg, var(--accent) 0 1px, transparent 1px) 0 0 / 7px 1px repeat-x,
+    linear-gradient(90deg, var(--accent) 0 1px, transparent 1px) 0 100% / 7px 1px repeat-x;
+  opacity: .28;
+}
+.vs-portrait .grid::before, .vs-portrait .grid::after {
+  content: ''; position: absolute; width: 9px; height: 9px; border: 1px solid var(--accent);
+  opacity: .8;
+}
+.vs-portrait .grid::before { left: -2px; top: -2px; border-right: 0; border-bottom: 0; }
+.vs-portrait .grid::after { right: -2px; bottom: -2px; border-left: 0; border-top: 0; }
 
 .vs-sel .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .vs-sel .nm { font-family: var(--font-display); font-size: 17px; letter-spacing: .18em; color: var(--ink); }
@@ -570,6 +584,7 @@ function css(): string {
 .vs-meter.cargo .track i { background: linear-gradient(180deg, #7de3ff, #12587a); }
 .vs-meter.build .track i { background: linear-gradient(180deg, var(--accent-soft), var(--accent-deep)); }
 
+.vs-sel .vs-squad { padding: 0 10px 10px; }
 .vs-squad { display: grid; grid-template-columns: repeat(auto-fill, 42px); gap: 4px; align-content: start; }
 .vs-chip {
   position: relative; width: 42px; height: 42px; cursor: pointer;
@@ -602,6 +617,33 @@ function css(): string {
 .vs-hpbar.low i { background: var(--danger); }
 .vs-hpbar.enemy { box-shadow: 0 0 0 1px rgba(255,90,60,.5); }
 .vs-hpbar.sel { height: 7px; box-shadow: 0 0 0 1px var(--edge-hot), 0 0 8px rgba(255,180,42,.4); }
+
+/* Selection reticle: four corner cuts and a ground ellipse, sized in screen
+   space from the subject's world radius. Only drawn when the simulation is not
+   already projecting its own rings onto the terrain. */
+.vs-reticle {
+  position: absolute; left: 0; top: 0; pointer-events: none;
+  transform-origin: 50% 50%; margin: 0; will-change: transform;
+}
+.vs-reticle .c { position: absolute; width: 26%; height: 34%; }
+.vs-reticle .c::before, .vs-reticle .c::after {
+  content: ''; position: absolute; background: var(--accent-soft);
+  box-shadow: 0 0 6px rgba(255,180,42,.7);
+}
+.vs-reticle .c::before { width: 100%; height: 2px; }
+.vs-reticle .c::after { width: 2px; height: 100%; }
+.vs-reticle .tl { left: -50%; top: -50%; }
+.vs-reticle .tr { left: 24%; top: -50%; }
+.vs-reticle .tr::before, .vs-reticle .tr::after { right: 0; }
+.vs-reticle .bl { left: -50%; top: 16%; }
+.vs-reticle .bl::before, .vs-reticle .bl::after { bottom: 0; }
+.vs-reticle .br { left: 24%; top: 16%; }
+.vs-reticle .br::before, .vs-reticle .br::after { right: 0; bottom: 0; }
+.vs-reticle .ring {
+  position: absolute; left: -50%; top: -50%; width: 100%; height: 100%;
+  border: 1px solid rgba(255,216,138,.55); border-radius: 50%;
+  box-shadow: inset 0 0 12px rgba(255,180,42,.28);
+}
 
 /* ------------------------------------------------------------- tooltip */
 
