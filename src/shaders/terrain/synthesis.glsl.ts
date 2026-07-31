@@ -49,7 +49,7 @@ void main() {
 /**
  * World-space macro mask, sampled once per fragment by the terrain shader.
  *   R  biome         dry steppe (0) to lush meadow (1)
- *   G  patch         exposed dirt / gravel scars
+ *   G  patchMask         exposed dirt / gravel scars
  *   B  wear          scorched, battle-burnt ground (sparse)
  *   A  luminance     large scale tonal + hue drift, and the de-tiling mask
  */
@@ -69,8 +69,8 @@ void main() {
   biome = smoothstep(0.34, 0.70, biome);
   biome = mix(biome, vsOpenFbm(wb / 210.0, 3, 0.5, 17.0), 0.28);
 
-  float patch = vsOpenFbm(wb / 265.0 + 31.0, 4, 0.52, 19.0);
-  patch = smoothstep(0.30, 0.86, patch * 0.72 + vsOpenFbm(w / 78.0, 3, 0.5, 23.0) * 0.28);
+  float patchMask = vsOpenFbm(wb / 265.0 + 31.0, 4, 0.52, 19.0);
+  patchMask = smoothstep(0.30, 0.86, patchMask * 0.72 + vsOpenFbm(w / 78.0, 3, 0.5, 23.0) * 0.28);
 
   float wear = vsOpenFbm(wb / 430.0 + 53.0, 4, 0.5, 29.0);
   wear = smoothstep(0.62, 0.93, wear) * smoothstep(0.40, 0.78, vsOpenFbm(w / 130.0, 3, 0.5, 31.0));
@@ -79,7 +79,7 @@ void main() {
             + vsOpenFbm(w / 380.0, 4, 0.52, 41.0) * 0.36
             + vsOpenFbm(w / 96.0, 3, 0.5, 43.0) * 0.19;
 
-  gl_FragColor = vec4(clamp(biome, 0.0, 1.0), clamp(patch, 0.0, 1.0),
+  gl_FragColor = vec4(clamp(biome, 0.0, 1.0), clamp(patchMask, 0.0, 1.0),
                       clamp(wear, 0.0, 1.0), clamp(lum, 0.0, 1.0));
 }
 `;

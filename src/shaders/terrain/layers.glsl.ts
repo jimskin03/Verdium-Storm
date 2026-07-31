@@ -47,7 +47,7 @@ VSSurface vsSDryGrass(vec2 uv) {
   float h = vsHDryGrass(uv);
   vec3 cl = vsWorley(uv, vec2(11.0), 3.1);
   float tone = vsFbm(uv, vec2(3.0), 4, 0.55, 21.0);
-  float patch = vsFbm(uv, vec2(13.0), 3, 0.5, 31.0);
+  float patchMask = vsFbm(uv, vec2(13.0), 3, 0.5, 31.0);
 
   vec3 straw = vec3(0.639, 0.549, 0.302);
   vec3 olive = vec3(0.376, 0.396, 0.204);
@@ -58,9 +58,9 @@ VSSurface vsSDryGrass(vec2 uv) {
   vec3 c = mix(olive, straw, smoothstep(0.22, 0.82, dryness));
   c = mix(c, pale, smoothstep(0.58, 1.0, h) * 0.62);
   c = mix(soil, c, smoothstep(0.015, 0.28, h));
-  c *= 0.84 + 0.30 * patch;
+  c *= 0.84 + 0.30 * patchMask;
 
-  float rough = 0.90 - 0.05 * h + 0.05 * patch;
+  float rough = 0.90 - 0.05 * h + 0.05 * patchMask;
   float ao = mix(0.42, 1.0, smoothstep(0.0, 0.52, h));
   return VSSurface(c, h, rough, ao);
 }

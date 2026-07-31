@@ -72,28 +72,48 @@ export function encodePng(rgba, width, height, flipY = true) {
 }
 
 /**
- * Reads the drawing buffer out of the page as raw RGBA. Runs in page context.
- * Returns a plain array because Playwright cannot structured-clone a typed
- * array across the bridge.
+ * Reads the drawing buffer into a page-side staging buffer.
+ *
+ * The pixels come back to node in bands rather than one payload: at 1080p the
+ * frame is 8.3 MB, and base64-encoding that in one go builds ~30 MB of
+ * intermediate JavaScript strings, which is enough to OOM the tab partway
+ * through a multi-shot run.
  */
-export const READ_PIXELS = () => {
+const BEGIN_CAPTURE = () => {
   const gl = window.VS.engine.renderer.getContext();
   const w = gl.drawingBufferWidth;
   const h = gl.drawingBufferHeight;
   const buf = new Uint8Array(w * h * 4);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
-  // Base64 over the bridge is dramatically faster than a 8M-element JSON array.
-  let s = '';
-  const CH = 0x8000;
-  for (let i = 0; i < buf.length; i += CH) {
-    s += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
-  }
-  return { w, h, b64: btoa(s) };
+  window.__vsCapture = buf;
+  return { w, h, bytes: buf.length };
 };
 
-/** Captures the current frame from a Playwright page and writes a PNG buffer. */
+const READ_BAND = ([offset, length]) => {
+  const buf = window.__vsCapture;
+  const end = Math.min(offset + length, buf.length);
+  let s = '';
+  const CH = 0x8000;
+  for (let i = offset; i < end; i += CH) {
+    s += String.fromCharCode.apply(null, buf.subarray(i, Math.min(i + CH, end)));
+  }
+  return btoa(s);
+};
+
+const END_CAPTURE = () => {
+  delete window.__vsCapture;
+};
+
+/** Captures the current frame from a Playwright page and returns PNG bytes. */
 export async function capturePage(page) {
-  const { w, h, b64 } = await page.evaluate(READ_PIXELS);
-  return { buffer: encodePng(Buffer.from(b64, 'base64'), w, h, true), width: w, height: h };
+  const { w, h, bytes } = await page.evaluate(BEGIN_CAPTURE);
+  const BAND = 1 << 20; // 1 MB of pixels per hop
+  const parts = [];
+  for (let offset = 0; offset < bytes; offset += BAND) {
+    const b64 = await page.evaluate(READ_BAND, [offset, BAND]);
+    parts.push(Buffer.from(b64, 'base64'));
+  }
+  await page.evaluate(END_CAPTURE);
+  return { buffer: encodePng(Buffer.concat(parts), w, h, true), width: w, height: h };
 }

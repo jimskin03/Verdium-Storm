@@ -142,9 +142,23 @@ function exposeHarness(engine: Engine, rig: CameraRig): void {
       return engine.renderer.domElement.toDataURL('image/png');
     },
 
-    /** Advances the sim by fixed steps so captures are reproducible. */
+    /**
+     * Advances the sim by fixed steps so captures are reproducible.
+     *
+     * Each frame ends with a one-pixel readback. That looks wasteful but is
+     * load-bearing under software rasterisation: SwiftShader defers the drawing
+     * work, so a burst of steps queues up instead of executing, and the first
+     * real readPixels then has to flush the entire burst — which takes minutes
+     * at 1080p and takes the tab down with it. Syncing per frame keeps the
+     * queue one frame deep.
+     */
     step(frames: number, dt = 1 / 60): void {
-      for (let i = 0; i < frames; i++) engine.stepManual(dt);
+      const gl = engine.renderer.getContext();
+      const probe = new Uint8Array(4);
+      for (let i = 0; i < frames; i++) {
+        engine.stepManual(dt);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, probe);
+      }
     },
 
     stats(): Record<string, number> {
