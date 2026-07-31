@@ -153,14 +153,23 @@ vec2 vsG0x = vsDpx.xz * vsInv0;
 vec2 vsG0y = vsDpy.xz * vsInv0;
 
 // --------------------------------------------------------------- layer rules
-float vsHighland = smoothstep(52.0, 132.0, vsAlt);
+// Altitude gates are tuned to the heightfield's measured distribution: 53% of
+// the playable map sits between y=0 and y=40, 96% is below y=100, and only
+// 0.5% clears y=130. The previous 52..132 window therefore never reached 1.0
+// anywhere, leaving the highland gravel and rock contributions permanently off.
+float vsHighland = smoothstep(34.0, 88.0, vsAlt);
 float vsShore = smoothstep(11.0, 1.0, vsAlt);
 float vsLow = smoothstep(6.5, -2.0, vsAlt);
 float vsConcave = smoothstep(0.10, -0.55, vsCurv);
 float vsConvex = smoothstep(-0.05, 0.55, vsCurv);
 
-float vsWDry = 0.62 + 0.85 * (1.0 - vsMacro.r) + 0.30 * vsHighland;
-float vsWLush = 0.16 + 1.05 * vsMacro.r * (1.0 - vsHighland) + 0.45 * vsConcave;
+// Dry and lush are deliberately symmetric about the biome mask so it actually
+// selects between them at its midpoint. They were not: dry carried a 0.62 floor
+// plus a (1 - biome) boost against lush's 0.16 floor, so lush needed biome
+// > 0.69 to win anywhere. Since biome is a saturating smoothstep over fbm, that
+// almost never happened and the whole map rendered as one dry-grass tan.
+float vsWDry = 0.30 + 1.30 * (1.0 - vsMacro.r) + 0.34 * vsHighland;
+float vsWLush = 0.30 + 1.30 * vsMacro.r * (1.0 - vsHighland * 0.75) + 0.45 * vsConcave;
 float vsWDirt = 0.20 + 1.10 * smoothstep(0.40, 0.86, vsMacro.g) + 0.95 * smoothstep(0.09, 0.33, vsSlope);
 float vsWMud = 0.02 + 1.30 * vsLow * vsConcave + 0.55 * vsLow;
 float vsWGrav = 0.06 + 1.15 * vsShore * (1.0 - vsConcave * 0.6)

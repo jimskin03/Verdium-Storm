@@ -72,7 +72,8 @@ export function createTerrainMaterial(opts: TerrainMaterialOptions): TerrainMate
     uLayerScale: { value: new THREE.Vector3(6.0, 37.0, 4.0) },
     uDetailNormal: { value: new THREE.Vector2(1.0, 1.35) },
     uWaterLevel: { value: WATER_LEVEL },
-    uSnowLine: { value: 132 },
+    // Only ~0.5% of the map clears y=130, so a snow line there was unreachable.
+    uSnowLine: { value: 104 },
     uPomScale: { value: pom ? 1 : 0 },
   };
 
