@@ -115,6 +115,15 @@ export class PostFX implements System, RenderHook {
     this.width = Math.max(1, width);
     this.height = Math.max(1, height);
     this.sceneTarget.setSize(this.width, this.height);
+    // setSize reallocates the colour attachment but leaves the attached depth
+    // texture's declared dimensions stale, which makes the framebuffer
+    // incomplete and renders nothing at all after a resize.
+    const depth = this.sceneTarget.depthTexture;
+    if (depth) {
+      depth.image.width = this.width;
+      depth.image.height = this.height;
+      depth.needsUpdate = true;
+    }
 
     const u = this.composite.uniforms;
     (u.uResolution.value as THREE.Vector2).set(this.width, this.height);
