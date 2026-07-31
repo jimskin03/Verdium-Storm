@@ -46,11 +46,13 @@ function parseArgs(argv) {
     tod: null,
     keep: false,
     dist: 'dist',
+    fog: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const key = argv[i].replace(/^--/, '');
     const next = argv[i + 1];
     if (key === 'keep') { args.keep = true; continue; }
+    if (key === 'fog') { args.fog = true; continue; }
     if (next === undefined) continue;
     i++;
     if (['width', 'height', 'warmup', 'settle', 'timeout'].includes(key)) args[key] = Number(next);
@@ -169,6 +171,12 @@ async function main() {
 
   await page.waitForFunction(() => window.VS?.ready === true, null, { timeout: args.timeout });
   process.stdout.write('→ engine ready\n');
+
+  // Fog of war would otherwise cover most of every shot in opaque shroud.
+  if (!args.fog) {
+    const off = await page.evaluate(() => window.VS.setFogOfWar?.(false) ?? false);
+    process.stdout.write(off ? '→ fog of war disabled for review\n' : '→ fog of war not available\n');
+  }
 
   // Let one-time GPU work (shader compiles, texture uploads) finish before the
   // timed warmups, otherwise the first preset absorbs all of it.

@@ -126,6 +126,21 @@ function exposeHarness(engine: Engine, rig: CameraRig): void {
     },
 
     /**
+     * Fog of war hides most of the map, which is correct for play but makes a
+     * visual review shot almost entirely black shroud. The capture harness
+     * turns it off so the world underneath can actually be judged.
+     */
+    setFogOfWar(enabled: boolean): boolean {
+      const battlefield = engine.get('battlefield') as unknown as
+        | { sim?: { fog?: { setEnabled?: (v: boolean) => void } } }
+        | undefined;
+      const fog = battlefield?.sim?.fog;
+      if (typeof fog?.setEnabled !== 'function') return false;
+      fog.setEnabled(enabled);
+      return true;
+    },
+
+    /**
      * Halts the rAF loop so the drawing buffer holds a stable frame. Software
      * rasterisation is slow enough that the compositor otherwise never settles
      * long enough for a screenshot to complete.
