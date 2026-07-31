@@ -108,6 +108,15 @@ vec3 reconstructViewNormal(sampler2D depthTex, vec2 uv, vec3 P, vec2 texel, mat4
  * outside it, plus an exposed "look" stage (slope / power / saturation applied
  * in the log domain) which is where AgX's characteristic filmic punch comes
  * from. Neutral AgX on its own is deliberately flat.
+ *
+ * The log encoding window is a parameter rather than AgX's stock
+ * -12.47..+4.03 EV. That default spans 16.5 stops because it is built for
+ * photographic plates with genuinely that much range; a real-time scene lit by
+ * one sun spans five or six, so the stock window squeezes the entire image into
+ * a third of the curve and every frame comes out as a narrow mid-tone band.
+ * Fitting the window to the scene's actual range is what buys contrast without
+ * touching exposure — the shoulder still rolls off, it just starts where the
+ * picture's highlights actually are.
  */
 export const AGX_TONEMAP = /* glsl */ `
 const mat3 AGX_INSET = mat3(
@@ -140,14 +149,13 @@ vec3 agxLook(vec3 c, float sat, float slope, float power) {
   return max(vec3(0.0), luma + sat * (c - luma));
 }
 
-vec3 tonemapAgX(vec3 color, float sat, float slope, float power) {
-  const float AGX_MIN_EV = -12.47393;
-  const float AGX_MAX_EV = 4.026069;
+/* The ev argument is the log2 window mapped onto the sigmoid: x = min, y = max. */
+vec3 tonemapAgX(vec3 color, float sat, float slope, float power, vec2 ev) {
   color = SRGB_TO_REC2020 * max(color, vec3(0.0));
   color = AGX_INSET * color;
   color = max(color, vec3(1e-10));
   color = log2(color);
-  color = (color - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV);
+  color = (color - ev.x) / max(ev.y - ev.x, 1e-3);
   color = clamp(color, 0.0, 1.0);
   color = agxContrast(color);
   color = agxLook(color, sat, slope, power);

@@ -30,6 +30,7 @@ uniform float uFar;
 
 uniform float uExposure;
 uniform vec3 uAgx;              // x = saturation, y = slope, z = power
+uniform vec2 uAgxEv;            // log2 window fed to the sigmoid: min EV, max EV
 uniform float uVignetteStrength;
 uniform float uVignetteScale;
 uniform float uChromatic;
@@ -176,7 +177,7 @@ void main() {
   }
 
   // --- display transform ---------------------------------------------------
-  vec3 display = tonemapAgX(max(vec3(0.0), color) * uExposure, uAgx.x, uAgx.y, uAgx.z);
+  vec3 display = tonemapAgX(max(vec3(0.0), color) * uExposure, uAgx.x, uAgx.y, uAgx.z, uAgxEv);
   vec3 encoded = linearToSrgb(display);
 
   // --- creative grade ------------------------------------------------------

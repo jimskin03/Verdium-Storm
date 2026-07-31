@@ -189,10 +189,21 @@ export class Minimap {
   }
 
   update(dt: number, game: GameStateService, camera: THREE.PerspectiveCamera, distance: number, target: THREE.Vector3): void {
-    this.accum += dt;
+    // The static layer is built ahead of the rate limiter, not behind it. It is
+    // a one-shot build, and putting it behind the gate means any stall in the
+    // accumulator leaves the map with no terrain at all rather than a stale one.
+    this.prepare();
+
+    // Clamp before accumulating. The frame delta is derived from a rAF
+    // timestamp measured against a `performance.now()` baseline, and a
+    // freeze/thaw cycle — which the capture harness performs around every
+    // screenshot — can hand back a large *negative* delta. Adding that to the
+    // accumulator drives it hundreds of milliseconds below zero, and at
+    // software-rasteriser frame rates the map then stops redrawing for tens of
+    // seconds. Which is exactly what a permanently blank tactical map is.
+    this.accum += Math.min(Math.max(dt, 0), REFRESH * 4);
     if (this.accum < REFRESH) return;
     this.accum = 0;
-    this.prepare();
 
     const g = this.g;
     if (!g || !this.terrain) return;
@@ -222,8 +233,10 @@ export class Minimap {
     }
     g.restore();
 
-    const fog = game.fogGrids();
-    if (fog) this.drawFog(g, fog, n);
+    const grids = game.fogGrids();
+    // A shroud that did not draw must not censor the blips either, or a map
+    // with no fog data would show terrain and nothing on it.
+    const fog = grids && this.drawFog(g, grids, n) ? grids : null;
 
     // Units and structures. Enemy contacts are suppressed outside current
     // vision, which is the whole point of having a fog layer.
@@ -271,14 +284,30 @@ export class Minimap {
     const gx = Math.floor(((x + HALF_WORLD) / WORLD_SIZE) * r);
     const gz = Math.floor(((z + HALF_WORLD) / WORLD_SIZE) * r);
     if (gx < 0 || gz < 0 || gx >= r || gz >= r) return false;
-    return fog.visible[gz * r + gx] > 40;
+    // Any non-zero cell counts as seen. The grids are flags, not coverage
+    // fractions — see the note in drawFog.
+    return fog.visible[gz * r + gx] !== 0;
   }
 
+  /**
+   * Paints the shroud.
+   *
+   * The two grids are **flags**, not coverage values: the simulation writes 1
+   * for a revealed cell and 0 for everything else. Testing them against a
+   * mid-range threshold therefore reports "unexplored" for every cell on the
+   * map and buries the whole tactical map under an opaque sheet — which is
+   * exactly what a solid black minimap looks like.
+   *
+   * Returns false when the grid is entirely unexplored. That state cannot occur
+   * in a running match — a team always sees its own base — so it means the fog
+   * is not being computed at all, and blanking the map would hide a working
+   * minimap behind a bug somewhere else.
+   */
   private drawFog(
     g: CanvasRenderingContext2D,
     fog: { explored: Uint8Array; visible: Uint8Array; resolution: number },
     n: number,
-  ): void {
+  ): boolean {
     const r = fog.resolution;
     if (!this.fog || this.fog.width !== r) {
       this.fog = document.createElement('canvas');
@@ -289,17 +318,20 @@ export class Minimap {
     }
     const fg = this.fogG;
     const img = this.fogImage;
-    if (!fg || !img) return;
+    if (!fg || !img) return false;
 
+    let seen = 0;
     for (let i = 0; i < r * r; i++) {
-      const explored = fog.explored[i] > 40;
-      const visible = fog.visible[i] > 40;
+      const explored = fog.explored[i] !== 0;
+      const visible = fog.visible[i] !== 0;
+      if (explored) seen++;
       const o = i * 4;
       img.data[o] = 3;
       img.data[o + 1] = 6;
       img.data[o + 2] = 9;
       img.data[o + 3] = visible ? 0 : explored ? 118 : 236;
     }
+    if (seen === 0) return false;
     fg.putImageData(img, 0, 0);
 
     g.save();
@@ -307,6 +339,7 @@ export class Minimap {
     g.imageSmoothingQuality = 'high';
     g.drawImage(this.fog, 0, 0, n, n);
     g.restore();
+    return true;
   }
 
   /**

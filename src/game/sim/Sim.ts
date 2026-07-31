@@ -328,8 +328,12 @@ export class Sim {
   private seedBase(team: number, cx: number, cz: number, s: number): void {
     const layout: Array<[BuildingType, number, number]> = [
       ['hq', 0, 0],
+      // Three plants, not two: the rest of this layout draws 137 power, so two
+      // (+50 each) opened every match in brownout with production already
+      // throttled. Three gives 150 — a small margin that expansion eats into.
       ['power', -30, -8],
       ['power', -30, 14],
+      ['power', -30, 36],
       ['refinery', 26, -18],
       ['barracks', 2, 30],
       ['factory', 30, 16],

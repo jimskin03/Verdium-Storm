@@ -135,8 +135,13 @@ export class Engine {
 
     const rawDt = (now - this.lastTime) / 1000;
     this.lastTime = now;
-    // Clamp so a stalled tab (or a devtools pause) cannot teleport the sim.
-    const dt = this.paused ? 0 : Math.min(rawDt, 1 / 15) * this.timeScale;
+    // Clamp both ends. The upper bound stops a stalled tab from teleporting the
+    // sim; the lower bound matters because `start()` rebases `lastTime` against
+    // performance.now() while rAF timestamps come from a different origin, so
+    // the first frame after a freeze/thaw yields a large *negative* delta. Any
+    // system accumulating dt then runs backwards — which is exactly how the
+    // minimap ended up never redrawing.
+    const dt = this.paused ? 0 : THREE.MathUtils.clamp(rawDt, 0, 1 / 15) * this.timeScale;
     this.elapsed += dt;
     this.frameCount++;
 

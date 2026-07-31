@@ -2,9 +2,34 @@ import * as THREE from 'three';
 import type { RenderHook } from './Engine';
 import { tryGet } from './Services';
 import { Phase, type EngineContext, type System } from './System';
+import {
+  BLOOM_DOWNSAMPLE_FRAGMENT,
+  BLOOM_PREFILTER_FRAGMENT,
+  BLOOM_UPSAMPLE_FRAGMENT,
+} from '@/shaders/post/bloom';
 import { COMPOSITE_FRAGMENT } from '@/shaders/post/composite';
 import { FullScreenPass } from '@/shaders/post/FullScreenPass';
-import { LUT_SIZE, createGradeLut, lookForSunElevation, writeGradeLut } from '@/shaders/post/grade';
+import {
+  LUT_SIZE,
+  createGradeLut,
+  lookForSunElevation,
+  writeGradeLut,
+} from '@/shaders/post/grade';
+
+/** Bloom pyramid depth per quality tier. Level 0 is half the drawing buffer. */
+const BLOOM_LEVELS: Record<string, number> = { low: 4, medium: 5, high: 6, ultra: 6 };
+
+/** Scene-referred light, post-exposure, at which a pixel starts to bloom. */
+const BLOOM_THRESHOLD = 0.90;
+const BLOOM_KNEE = 0.50;
+/** Fraction of *all* light the lens scatters, thresholded or not. */
+const BLOOM_VEIL = 0.025;
+/** Ceiling on a single source texel, so one firefly cannot flood the chain. */
+const BLOOM_CLAMP = 8.0;
+const BLOOM_INTENSITY = 0.55;
+/** Weight of the coarser mip in each tent upsample; 0.5 is energy preserving. */
+const BLOOM_BLEND = 0.5;
+const BLOOM_RADIUS = 1.0;
 
 /** Signature of `WebGLRenderer.render`, for the presentation interception. */
 type RenderFn = (scene: THREE.Object3D, camera: THREE.Camera) => void;
@@ -42,6 +67,16 @@ export class PostFX implements System, RenderHook {
   private sceneTarget!: THREE.WebGLRenderTarget;
   private composite!: FullScreenPass;
 
+  /** Bloom pyramid. `bloomDown[0]` is half resolution; `bloomUp` is the return leg. */
+  private bloomDown: THREE.WebGLRenderTarget[] = [];
+  private bloomUp: THREE.WebGLRenderTarget[] = [];
+  private bloomPrefilter: FullScreenPass | null = null;
+  private bloomDownsample: FullScreenPass | null = null;
+  private bloomUpsample: FullScreenPass | null = null;
+  /** Levels the tier asks for; `bloomLevels` is what the resolution allows. */
+  private bloomRequested = 0;
+  private bloomLevels = 0;
+
   private lut!: THREE.DataTexture;
   private lutData!: Uint8Array;
   private lutElevation = Number.NaN;
@@ -61,7 +96,10 @@ export class PostFX implements System, RenderHook {
     this.lutData = this.lut.image.data as Uint8Array;
     this.lutElevation = this.sunElevation();
 
-    this.composite = new FullScreenPass(COMPOSITE_FRAGMENT, {
+    this.bloomRequested = ctx.quality.bloom ? BLOOM_LEVELS[ctx.quality.tier] ?? 5 : 0;
+    if (this.bloomRequested > 0) this.buildBloom(this.bloomRequested);
+
+    const uniforms: Record<string, THREE.IUniform> = {
       tColor: { value: this.sceneTarget.texture },
       tDepth: { value: this.sceneTarget.depthTexture },
       uResolution: { value: new THREE.Vector2(this.width, this.height) },
@@ -69,8 +107,11 @@ export class PostFX implements System, RenderHook {
       uNear: { value: ctx.camera.near },
       uFar: { value: ctx.camera.far },
       uExposure: { value: 1.35 },
-      uAgx: { value: new THREE.Vector3(1.1, 1.0, 1.08) },
-      uVignetteStrength: { value: 0.34 },
+      // AgX's own look stage stays close to neutral: the creative shaping is
+      // the LUT's job, and doing it twice fights itself.
+      uAgx: { value: new THREE.Vector3(1.06, 1.0, 1.0) },
+      uAgxEv: { value: new THREE.Vector2(look.evWindow[0], look.evWindow[1]) },
+      uVignetteStrength: { value: 0.30 },
       uVignetteScale: { value: 1.05 },
       uChromatic: { value: 0.0035 },
       uGrain: { value: 0.016 },
@@ -78,7 +119,15 @@ export class PostFX implements System, RenderHook {
       uTime: { value: 0 },
       tLut: { value: this.lut },
       uLutParams: { value: new THREE.Vector2(LUT_SIZE, 1 / (LUT_SIZE * LUT_SIZE)) },
-    });
+    };
+    const defines: Record<string, string> = {};
+    if (this.bloomLevels > 0) {
+      defines.USE_BLOOM = '1';
+      uniforms.tBloom = { value: this.bloomResult() };
+      uniforms.uBloomIntensity = { value: BLOOM_INTENSITY };
+    }
+
+    this.composite = new FullScreenPass(COMPOSITE_FRAGMENT, uniforms, defines);
 
     // Claimed last so a stack that threw while building never leaves the engine
     // hooked to a half-constructed chain.
@@ -125,6 +174,12 @@ export class PostFX implements System, RenderHook {
       depth.needsUpdate = true;
     }
 
+    if (this.bloomRequested > 0) {
+      this.disposeBloomTargets();
+      this.buildBloom(this.bloomRequested);
+      if (this.composite?.uniforms.tBloom) this.composite.uniforms.tBloom.value = this.bloomResult();
+    }
+
     const u = this.composite.uniforms;
     (u.uResolution.value as THREE.Vector2).set(this.width, this.height);
     (u.uTexel.value as THREE.Vector2).set(1 / this.width, 1 / this.height);
@@ -135,6 +190,10 @@ export class PostFX implements System, RenderHook {
     this.sceneTarget?.depthTexture?.dispose();
     this.sceneTarget?.dispose();
     this.composite?.dispose();
+    this.disposeBloomTargets();
+    this.bloomPrefilter?.dispose();
+    this.bloomDownsample?.dispose();
+    this.bloomUpsample?.dispose();
     this.lut?.dispose();
   }
 
@@ -209,8 +268,118 @@ export class PostFX implements System, RenderHook {
     renderer.setRenderTarget(this.sceneTarget);
     this.baseRender!(scene, camera);
 
+    if (this.bloomLevels > 0) this.drawBloom();
+
     // The chain always ends on framebuffer zero. See the class comment.
     this.composite.render(renderer, null);
+  }
+
+  // --- bloom -----------------------------------------------------------------
+
+  /**
+   * Allocates the bloom pyramid.
+   *
+   * `bloomDown` is the descending leg — half resolution, then halving — and
+   * `bloomUp` is the ascending one. Two chains rather than one because the tent
+   * upsample reads the finer mip *and* the coarser result in the same pass, so
+   * writing back into the mip it is reading would be undefined.
+   */
+  private buildBloom(requested: number): void {
+    let w = Math.max(1, this.width >> 1);
+    let h = Math.max(1, this.height >> 1);
+    const levels: Array<[number, number]> = [];
+    for (let i = 0; i < requested && w >= 8 && h >= 8; i++) {
+      levels.push([w, h]);
+      w = Math.max(1, w >> 1);
+      h = Math.max(1, h >> 1);
+    }
+    this.bloomLevels = levels.length;
+    if (this.bloomLevels === 0) return;
+
+    this.bloomDown = levels.map(([lw, lh]) => this.createBloomTarget(lw, lh));
+    // One fewer: the coarsest level is only ever read.
+    this.bloomUp = levels.slice(0, -1).map(([lw, lh]) => this.createBloomTarget(lw, lh));
+
+    this.bloomPrefilter ??= new FullScreenPass(BLOOM_PREFILTER_FRAGMENT, {
+      tColor: { value: null },
+      uTexel: { value: new THREE.Vector2() },
+      uThreshold: { value: BLOOM_THRESHOLD },
+      uKnee: { value: BLOOM_KNEE },
+      uVeil: { value: BLOOM_VEIL },
+      uExposure: { value: 1.35 },
+      uClamp: { value: BLOOM_CLAMP },
+    });
+    this.bloomDownsample ??= new FullScreenPass(BLOOM_DOWNSAMPLE_FRAGMENT, {
+      tColor: { value: null },
+      uTexel: { value: new THREE.Vector2() },
+    });
+    this.bloomUpsample ??= new FullScreenPass(BLOOM_UPSAMPLE_FRAGMENT, {
+      tCoarse: { value: null },
+      tFine: { value: null },
+      uTexel: { value: new THREE.Vector2() },
+      uRadius: { value: BLOOM_RADIUS },
+      uBlend: { value: BLOOM_BLEND },
+    });
+  }
+
+  private createBloomTarget(width: number, height: number): THREE.WebGLRenderTarget {
+    const target = new THREE.WebGLRenderTarget(width, height, {
+      type: THREE.HalfFloatType,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+      stencilBuffer: false,
+      generateMipmaps: false,
+    });
+    target.texture.colorSpace = THREE.LinearSRGBColorSpace;
+    // The tent filter reaches past the edge of every mip; clamping keeps the
+    // frame border from wrapping a bright corner around to the opposite side.
+    target.texture.wrapS = THREE.ClampToEdgeWrapping;
+    target.texture.wrapT = THREE.ClampToEdgeWrapping;
+    return target;
+  }
+
+  /** Texture the composite samples: the top of the ascending leg. */
+  private bloomResult(): THREE.Texture | null {
+    if (this.bloomLevels === 0) return null;
+    return (this.bloomUp[0] ?? this.bloomDown[0]).texture;
+  }
+
+  private drawBloom(): void {
+    const renderer = this.renderer;
+    const n = this.bloomLevels;
+
+    const pre = this.bloomPrefilter!;
+    pre.uniforms.tColor.value = this.sceneTarget.texture;
+    (pre.uniforms.uTexel.value as THREE.Vector2).set(1 / this.width, 1 / this.height);
+    pre.uniforms.uExposure.value = this.composite.uniforms.uExposure.value;
+    pre.render(renderer, this.bloomDown[0]);
+
+    const down = this.bloomDownsample!;
+    for (let i = 1; i < n; i++) {
+      const src = this.bloomDown[i - 1];
+      down.uniforms.tColor.value = src.texture;
+      (down.uniforms.uTexel.value as THREE.Vector2).set(1 / src.width, 1 / src.height);
+      down.render(renderer, this.bloomDown[i]);
+    }
+
+    const up = this.bloomUpsample!;
+    let coarse = this.bloomDown[n - 1];
+    for (let i = n - 2; i >= 0; i--) {
+      up.uniforms.tCoarse.value = coarse.texture;
+      up.uniforms.tFine.value = this.bloomDown[i].texture;
+      (up.uniforms.uTexel.value as THREE.Vector2).set(1 / coarse.width, 1 / coarse.height);
+      up.render(renderer, this.bloomUp[i]);
+      coarse = this.bloomUp[i];
+    }
+  }
+
+  private disposeBloomTargets(): void {
+    for (const target of this.bloomDown) target.dispose();
+    for (const target of this.bloomUp) target.dispose();
+    this.bloomDown = [];
+    this.bloomUp = [];
   }
 
   /** Keeps every target locked to the drawing buffer, including DPR changes. */
@@ -260,8 +429,13 @@ export class PostFX implements System, RenderHook {
     const elevation = this.sunElevation();
     if (Math.abs(elevation - this.lutElevation) < 0.012) return;
     this.lutElevation = elevation;
-    writeGradeLut(this.lutData, lookForSunElevation(elevation));
+    const look = lookForSunElevation(elevation);
+    writeGradeLut(this.lutData, look);
     this.lut.needsUpdate = true;
+    (this.composite.uniforms.uAgxEv.value as THREE.Vector2).set(
+      look.evWindow[0],
+      look.evWindow[1],
+    );
   }
 }
 
