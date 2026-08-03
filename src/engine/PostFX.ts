@@ -19,6 +19,9 @@ import {
 /** Bloom pyramid depth per quality tier. Level 0 is half the drawing buffer. */
 const BLOOM_LEVELS: Record<string, number> = { low: 4, medium: 5, high: 6, ultra: 6 };
 
+/** Exposure at noon. The atmosphere's metering scales this as the sun drops. */
+const BASE_EXPOSURE = 1.35;
+
 /** Scene-referred light, post-exposure, at which a pixel starts to bloom. */
 const BLOOM_THRESHOLD = 0.90;
 const BLOOM_KNEE = 0.50;
@@ -106,7 +109,7 @@ export class PostFX implements System, RenderHook {
       uTexel: { value: new THREE.Vector2(1 / this.width, 1 / this.height) },
       uNear: { value: ctx.camera.near },
       uFar: { value: ctx.camera.far },
-      uExposure: { value: 1.35 },
+      uExposure: { value: BASE_EXPOSURE },
       // AgX's own look stage stays close to neutral: the creative shaping is
       // the LUT's job, and doing it twice fights itself.
       uAgx: { value: new THREE.Vector3(1.06, 1.0, 1.0) },
@@ -306,7 +309,7 @@ export class PostFX implements System, RenderHook {
       uThreshold: { value: BLOOM_THRESHOLD },
       uKnee: { value: BLOOM_KNEE },
       uVeil: { value: BLOOM_VEIL },
-      uExposure: { value: 1.35 },
+      uExposure: { value: BASE_EXPOSURE },
       uClamp: { value: BLOOM_CLAMP },
     });
     this.bloomDownsample ??= new FullScreenPass(BLOOM_DOWNSAMPLE_FRAGMENT, {
@@ -426,6 +429,11 @@ export class PostFX implements System, RenderHook {
    * bake off the per-frame path.
    */
   private syncGrade(): void {
+    // Cheap and continuous, so it sits ahead of the LUT's movement guard: the
+    // stop must track the sun every frame, not only when the table is rebaked.
+    this.composite.uniforms.uExposure.value =
+      BASE_EXPOSURE * (tryGet('environment')?.sceneExposure ?? 1);
+
     const elevation = this.sunElevation();
     if (Math.abs(elevation - this.lutElevation) < 0.012) return;
     this.lutElevation = elevation;

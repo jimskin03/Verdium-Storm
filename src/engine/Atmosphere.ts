@@ -60,6 +60,24 @@ const BASE_ALTITUDE_KM = 0.06;
  */
 const SCENE_EXPOSURE = 5.2;
 
+/**
+ * Illuminance a flat, up-facing surface receives at local noon, in the same
+ * units `refreshLighting` accumulates. Golden-hour metering is expressed as a
+ * ratio against this, so it is a measurement of the rig rather than a taste
+ * constant — if the light rig changes, re-measure rather than re-tune.
+ */
+const NOON_GROUND_LUX = 5.5;
+
+/** Hemisphere-light floor, mirrored from `Lighting` so metering sees the whole rig. */
+const AMBIENT_FLOOR = 0.35;
+
+/**
+ * How far the key is pulled back toward the illuminant white at a horizon sun.
+ * 0 records the raw beam (physically exact, renders as a monochrome red wash);
+ * 1 would discard the warmth entirely.
+ */
+const KEY_ADAPTATION = 0.55;
+
 /** Direction the cloud deck drifts, and how fast, in world units per second. */
 const WIND = new THREE.Vector2(0.82, 0.57).normalize();
 const WIND_SPEED = 11;
@@ -75,6 +93,7 @@ export class Atmosphere implements System, EnvironmentService {
   readonly sunColor = new THREE.Color(1, 0.94, 0.86);
   readonly horizonColor = new THREE.Color(0x9fb6c4);
   sunIntensity = 4.6;
+  sceneExposure = 1;
   timeOfDay = 0.36;
 
   /**
@@ -289,8 +308,24 @@ export class Atmosphere implements System, EnvironmentService {
     skyUniforms.uSunRadiance.value.set(t.r, t.g, t.b).multiplyScalar(this.skyGain);
 
     const sunLevel = peak * this.skyGain;
+
+    // How far into golden hour we are: 0 with the sun well up, 1 at the horizon.
+    // Several terms below key off this, because a 4° sun is not merely a dimmer
+    // noon — the sky takes over as the dominant source and the beam goes red.
+    const lowSun = 1 - THREE.MathUtils.smoothstep(this.sunDirection.y, 0.03, 0.40);
+
+    // Chromatic adaptation. The direct beam really is this red at 4° — but an
+    // eye, and a camera's white balance, adapt to the dominant illuminant rather
+    // than recording it raw. Without this the key multiplies straight through
+    // albedo, and anything low in red (foliage, blue livery) goes black while
+    // the sky above it stays a perfectly exposed gold.
     if (peak > 1e-4) {
-      this.sunColor.setRGB(t.r / peak, t.g / peak, t.b / peak);
+      const adapt = KEY_ADAPTATION * lowSun;
+      this.sunColor.setRGB(
+        THREE.MathUtils.lerp(t.r / peak, 1, adapt),
+        THREE.MathUtils.lerp(t.g / peak, 1, adapt),
+        THREE.MathUtils.lerp(t.b / peak, 1, adapt),
+      );
     }
     this.sunIntensity = sunLevel;
 
@@ -314,7 +349,13 @@ export class Atmosphere implements System, EnvironmentService {
     skyState.fillDirection.normalize();
     // The probe already carries most of the sky's contribution; this only fills
     // the directional bias the diffuse SH cannot express.
-    skyState.fillIntensity = fillPeak * this.skyGain * Math.PI * 0.55;
+    //
+    // The weight climbs as the sun drops. A hemispheric *average* understates
+    // the low-sun sky badly: the bright band sits near the horizon, exactly
+    // where it rakes across vertical surfaces, and with the beam contributing
+    // almost nothing at grazing incidence the sky is what is actually lighting
+    // the scene. Holding the noon weight here is what left golden hour black.
+    skyState.fillIntensity = fillPeak * this.skyGain * Math.PI * (0.55 + 0.85 * lowSun);
 
     // Ground bounce: sunlight off the terrain, tinted by its albedo, arriving
     // from below. This is what keeps shadowed undersides from going flat grey.
@@ -328,6 +369,25 @@ export class Atmosphere implements System, EnvironmentService {
     );
     const bounceScale = Math.max(this.sunDirection.y, 0) * (1 - this.night);
     skyState.bounceIntensity = sunLevel * 0.14 * bounceScale;
+
+    // Meter the frame on the ground, not on the sky.
+    //
+    // At a 4° sun a flat surface collects cos(86°) — about 7% — of the beam, so
+    // ground illuminance falls to roughly a fifth of noon while the sky, seen
+    // directly, gets *brighter*. Left alone the tone mapper is driven by the sky
+    // and the landscape crushes to black. This opens the stop the way a
+    // photographer metering for the subject would, partially (the 0.42 exponent)
+    // so evening still reads darker than midday, and clamped so night stays night.
+    const groundLux =
+      sunLevel * Math.max(this.sunDirection.y, 0) +
+      skyState.fillIntensity +
+      skyState.bounceIntensity +
+      AMBIENT_FLOOR;
+    this.sceneExposure = THREE.MathUtils.clamp(
+      Math.pow(NOON_GROUND_LUX / Math.max(groundLux, 0.05), 0.42),
+      1,
+      1.85,
+    );
 
     skyState.skyColor.copy(skyState.fillColor);
     skyState.night = this.night;
