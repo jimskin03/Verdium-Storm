@@ -44,6 +44,8 @@ export class CameraRig implements System {
   instant = false;
   edgeScrollEnabled = true;
   inputEnabled = true;
+  /** Scales both keyboard and edge-scroll pan speed. Settings-panel controlled. */
+  panSpeedMultiplier = 1;
 
   private camera!: THREE.PerspectiveCamera;
   private dom!: HTMLElement;
@@ -67,7 +69,15 @@ export class CameraRig implements System {
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', () => this.keys.clear());
-    this.dom.addEventListener('pointermove', this.onPointerMove);
+    // Captured on window, not bound to `dom`: the HUD's top bar and sidebar
+    // sit in front of the viewport with `pointer-events: auto` so their own
+    // controls work, which means a listener on `dom` alone stops receiving
+    // pointermove the instant the cursor crosses onto one of those panels —
+    // including the strip along the very top of the screen. Capture fires
+    // during the top-down phase, before the HUD's own bubble-phase handlers
+    // (and their `stopPropagation`) ever run, so pointer tracking for edge
+    // scroll keeps working right up to the physical screen edge.
+    window.addEventListener('pointermove', this.onPointerMove, true);
     this.dom.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointerup', this.onPointerUp);
     this.dom.addEventListener('wheel', this.onWheel, { passive: false });
@@ -150,11 +160,15 @@ export class CameraRig implements System {
   }
 
   private handleKeyboard(dt: number): void {
-    const speed = this.smoothDistance * 1.15 * dt;
+    const speed = this.smoothDistance * 1.15 * dt * this.panSpeedMultiplier;
     let fx = 0;
     let fz = 0;
-    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) fz -= 1;
-    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) fz += 1;
+    // `panBy`'s `forward` axis is positive toward where the camera looks — the
+    // top of the screen, in this rig's oblique framing — so "up"/W has to pass
+    // +1 to advance that way. It used to pass -1, which drove the camera
+    // backward: pressing W panned toward the bottom of the screen instead.
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) fz += 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) fz -= 1;
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) fx -= 1;
     if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) fx += 1;
     if (fx || fz) this.panBy(fx * speed, fz * speed);
@@ -167,13 +181,15 @@ export class CameraRig implements System {
     const w = this.dom.clientWidth;
     const h = this.dom.clientHeight;
     const margin = 12;
-    const speed = this.smoothDistance * 1.4 * dt;
+    const speed = this.smoothDistance * 1.4 * dt * this.panSpeedMultiplier;
     let fx = 0;
     let fz = 0;
     if (this.pointerX < margin) fx -= 1;
     else if (this.pointerX > w - margin) fx += 1;
-    if (this.pointerY < margin) fz -= 1;
-    else if (this.pointerY > h - margin) fz += 1;
+    // Same sign convention as the keyboard: the top edge has to pass +1 to
+    // pan toward what's ahead (see the note in handleKeyboard).
+    if (this.pointerY < margin) fz += 1;
+    else if (this.pointerY > h - margin) fz -= 1;
     if (fx || fz) this.panBy(fx * speed, fz * speed);
   }
 
@@ -244,5 +260,6 @@ export class CameraRig implements System {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('pointermove', this.onPointerMove, true);
   }
 }
