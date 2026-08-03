@@ -8,6 +8,14 @@ material and sound is generated procedurally at runtime or authored in code.
 No downloaded PNGs, no model files, no audio files. That constraint is the
 whole challenge, and it shapes most of the interesting engineering here.
 
+**The Prompt**
+I want you to build a real-time strategy game at the level of the most recent Command and conquer game. It should be utterly perfect, visually beautiful, with every single thing done at AAA quality—from textures to physics to anything you could think of.
+
+Fan out sub-agents and have sub-agents tackle each one individually so that the game is utterly perfect. You should /loop on each item and have a separate sub-agent check it visually to ensure it looks triple A. That separate sub-agent should be a really harsh critic, and if it doesn't look triple A, it should keep going.
+
+Don't stop until each sub-agent is utterly wowed with the quality when compared with the actual Command and conquer game. It should literally compare them side by side blind and say which one looks better. Do this in ThreeJS. /loop until it's utterly perfect. Fan out sub-agents and ultracode.
+**Credit to Matt Shumer https://shumer.dev/about -for the prompt (Gauntlet Loop)
+
 ## Running it
 
 ```bash
