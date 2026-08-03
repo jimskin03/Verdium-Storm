@@ -91,16 +91,20 @@ export class Vegetation implements System {
     const near = new GrassLayer(this.terrain, {
       count: Math.round(34000 * density),
       radius: 30,
-      bladeWidth: 0.17,
-      bladeHeight: 1.05,
+      // World units are metres, so the old 1.05 blade stood as tall as a
+      // crouching rifleman and swallowed infantry whole at close zoom. Pasture
+      // grass is ankle-to-shin height; the far layer stays coarser because it
+      // has to cover ~8x the area with half the instances.
+      bladeWidth: 0.13,
+      bladeHeight: 0.50,
       groundBlend: 0.85,
       seed: 1337,
     });
     const far = new GrassLayer(this.terrain, {
       count: Math.round(16000 * density),
       radius: 86,
-      bladeWidth: 0.42,
-      bladeHeight: 1.35,
+      bladeWidth: 0.30,
+      bladeHeight: 0.72,
       groundBlend: 1.0,
       seed: 90210,
     });

@@ -276,7 +276,13 @@ vec3 vsGroundColorF(float h, float slope, float moisture) {
 }
 `;
 
+/**
+ * Diffuse albedo ceiling for a blade. Real grass sits near 0.25; this is well
+ * above that so the field keeps its bite, but low enough to stay physical.
+ */
 const COLOR_BODY = /* glsl */ `
+  #define VS_GRASS_ALBEDO_MAX 0.58
+
   vec3 dryC  = vec3(0.412, 0.386, 0.168);
   vec3 lushC = vec3(0.155, 0.352, 0.104);
   vec3 blade = mix(dryC, lushC, clamp(vMoist * 1.15, 0.0, 1.0));
@@ -287,10 +293,18 @@ const COLOR_BODY = /* glsl */ `
   // Root darkening: real turf is almost black where the blades interlock.
   float ao = 0.24 + 0.76 * smoothstep(0.0, 0.62, vV);
   ao *= 0.72 + 0.28 * vMask;
-  vec3 tipC = blade * vec3(1.5, 1.42, 0.92);
+  vec3 tipC = blade * vec3(1.24, 1.18, 0.95);
   vec3 col = mix(blade * ao, tipC, smoothstep(0.5, 1.0, vV) * 0.65);
   // Gusts flash the paler underside of the blades as they roll over.
   col = mix(col, col * vec3(1.18, 1.2, 1.05), clamp(vGust - 0.55, 0.0, 0.6));
+
+  // Clump drift, per-blade value, tip lightening and gust are all multipliers,
+  // and a blade that draws high on every one of them lands past 1.0 — an albedo
+  // that reflects more light than reaches it. Under a noon key that is what
+  // bleached the whole field to white. Rescale rather than clamp per channel,
+  // so an over-bright blade loses value without also shifting hue.
+  float peak = max(max(col.r, col.g), col.b);
+  col *= VS_GRASS_ALBEDO_MAX / max(peak, VS_GRASS_ALBEDO_MAX);
 
   vec3 groundC = vsGroundColorF(vWorld.y, 0.0, vMoist);
   col = mix(col, groundC, vBlend * uGroundBlend);
