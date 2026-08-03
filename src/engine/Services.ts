@@ -30,6 +30,12 @@ export interface EnvironmentService {
   readonly sunDirection: THREE.Vector3;
   readonly sunColor: THREE.Color;
   readonly sunIntensity: number;
+  /**
+   * Exposure compensation the post stack should apply, metered on ground
+   * illuminance. 1 at noon, rising as the sun drops so a low-sun landscape is
+   * not crushed by a sky that is still brightly lit.
+   */
+  readonly sceneExposure: number;
   /** 0..1 through the day; 0.25 = sunrise, 0.5 = noon, 0.75 = sunset. */
   timeOfDay: number;
   /** Fog/aerial-perspective tint at the horizon, for UI and minimap matching. */

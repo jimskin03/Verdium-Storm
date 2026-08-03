@@ -36,6 +36,7 @@ export class TopBar {
     theme: FactionTheme,
     private readonly onPause: () => void,
     private readonly onMenu: () => void,
+    private readonly onSettings: () => void,
   ) {
     this.theme = theme;
     this.root = div('vs-top', parent);
@@ -80,6 +81,15 @@ export class TopBar {
       e.preventDefault();
       e.stopPropagation();
       this.onPause();
+    });
+
+    const settings = div('vs-sysbtn', this.root);
+    const settingsIcon = icon('', settings, glyph('gear', PALETTE.ink, 26));
+    settingsIcon.style.cssText = 'width:13px;height:13px;background-size:contain;background-repeat:no-repeat';
+    settings.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.onSettings();
     });
 
     const menu = div('vs-sysbtn', this.root);
