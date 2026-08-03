@@ -1,66 +1,106 @@
 # Verdium Storm
 
-VERDIUM STORM is a single-file, browser-based real-time strategy (RTS) demo built with Three.js. It implements terrain, fog-of-war, base-building, resource harvesting, units, AI enemy waves, a power grid and an in-browser synthesized SFX system — all inside a self-contained HTML file: `Verdium Storm — Three.js RTS-kimik3.html`.
+A real-time strategy game built in Three.js, aiming at the visual and systemic
+quality of a modern AAA RTS — the Command & Conquer lineage — in the browser.
 
-The project is intended for players, hobby game developers, and authors exploring realtime gameplay systems with WebGL/Three.js. It is a compact, playable example showing how to combine 3D rendering and game systems in one distributable HTML page.
+Its defining constraint: **zero external art assets.** Every texture, mesh,
+material and sound is generated procedurally at runtime or authored in code.
+No downloaded PNGs, no model files, no audio files. That constraint is the
+whole challenge, and it shapes most of the interesting engineering here.
 
-## Quick links
-- Play / demo file: `Verdium Storm — Three.js RTS-kimik3.html`
-- Core code: inline JavaScript inside the HTML file (Three.js r128 via CDN)
-- Docs: `docs/` (this repository)
-
-## Highlights
-- Beautiful procedural terrain with water, foliage and fields
-- Fully implemented RTS systems: buildings, units, production queues, projectiles, explosions and particle FX
-- Fog-of-war with exploration & visibility
-- Synthesized in-browser audio using WebAudio (no external audio files)
-- Single-file distribution (easy to host or drop on any static web server)
-
-## How to run (minimum)
-From a fresh clone, the simplest way to run the demo locally is to serve the repository with a static server and open the HTML file in a browser.
-
-Example using Python 3 (works on macOS, Linux, Windows with Python installed):
+## Running it
 
 ```bash
-# from the repository root
-python3 -m http.server 8000
-# then open http://localhost:8000/Verdium%20Storm%20%E2%80%94%20Three.js%20RTS-kimik3.html
+npm install
+npm run dev        # http://localhost:5173
 ```
 
-Or open the HTML file directly in a modern browser. Note: some browsers restrict certain APIs for file:// pages (audio or resource loading). Running via a local HTTP server is recommended.
+Other scripts:
 
-## Controls (short)
-- LMB / Drag: select units (box select)
-- RMB: move / attack / harvest
-- WASD or Arrow keys: scroll camera
-- Q / E or MMB-drag: rotate camera
-- Mouse wheel: zoom
-- H: help overlay
-- P: pause
-- M: mute
-- Ctrl+1–5 to set control groups, 1–5 to recall
+```bash
+npm run build      # production build into dist/
+npm run preview    # serve the built output
+npm run typecheck  # tsc --noEmit
+```
 
-Full control list and gameplay tips are in docs/PLAY.md.
+Query parameters: `?quality=low|medium|high|ultra` forces a quality tier,
+`?dpr=1` pins device pixel ratio, `?day=<minutes>` starts the day/night clock
+(frozen by default so screenshots stay comparable), `?tod=0..1` sets time of day
+directly, and `?harness=1` exposes the automation surface.
 
-## Development
-This project is intentionally distributed as one HTML file that contains the game logic. If you want to iterate locally:
+## What is here
 
-- Edit `Verdium Storm — Three.js RTS-kimik3.html` directly.
-- Use a local static server (see above) and refresh the page to see changes.
-- The demo uses Three.js r128 from CDN: https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js
+| System | Notes |
+| --- | --- |
+| Terrain | CDLOD quadtree, procedurally synthesised PBR layers, height-blended splat, triplanar cliffs |
+| Atmosphere | Bruneton-style scattering, sky-view and multiscatter LUTs, aerial perspective, PMREM image-based lighting, volumetric clouds |
+| Lighting | Cascaded shadow maps with texel-snapped fitting, key/fill/bounce rig driven by the sky model |
+| Post | HDR chain — TAA, GTAO, progressive bloom, AgX with a procedural 3D-LUT grade, DOF, grain |
+| Water | Gerstner waves, depth-based absorption, screen-space reflection, shoreline foam |
+| Vegetation | GPU grass with a shared wind field, procedural trees with LOD and baked imposters |
+| Simulation | Pooled entities, flow-field navigation, economy, power grid, fog of war, enemy AI |
+| Models | Procedural units and structures per faction, with turret/tread/suspension rigs |
+| VFX | Pooled GPU particles, multi-stage explosions, tracers, terrain-projected decals |
+| UI | DOM HUD — command sidebar, minimap, selection, alerts, procedural icons and typeface |
+| Audio | Web Audio synthesis: SFX, EVA-style announcer, adaptive score |
 
-For notes on the code structure, systems and functions, see docs/ARCHITECTURE.md and docs/DEVELOPMENT.md.
+## Architecture
 
-## Contributing
-If you'd like to contribute, see CONTRIBUTING.md for guidelines. Issue reports should include steps to reproduce, browser and GPU/driver details when relevant.
+Entry point is `src/main.ts`. It creates an `Engine`, registers systems and
+starts the loop.
 
-## Credits
+- **`src/engine/System.ts`** — the `System` interface every subsystem
+  implements (`init`, `update`, `lateUpdate`, `resize`, `dispose`) and the
+  `Phase` tick ordering.
+- **`src/engine/Services.ts`** — cross-system contracts. Systems talk through
+  these rather than importing each other, so they can be developed and replaced
+  independently.
+- **`src/engine/Engine.ts`** — device, frame loop, system registry. Systems are
+  fault-isolated: one that throws is reported once and disabled, and the frame
+  still presents. A system may claim presentation via `setRenderHook`, which the
+  post stack does.
+- **`src/world/Heightfield.ts`** — the single source of truth for world shape.
+  Terrain rendering, water, scattering, pathfinding and building placement all
+  sample it.
 
-Special thanks to @achimala (TheLongSilence) — original inspiration / contribution. https://github.com/achimala/TheLongSilence"
+Deeper notes live in `docs/`: `ARCHITECTURE.md`, `ATMOSPHERE.md`, `UI.md`,
+`KNOWN_ISSUES.md`, and `REVIEW_RUBRIC.md` — the standard screenshots are judged
+against.
 
-Author / repository owner: jimskin03
-Three.js: https://threejs.org/ (CDN used)
-All in-game audio is synthesized via the Web Audio API — there are no external SFX assets.
+## Tooling
 
-## License
-No license file is included in the repository. If you want this project to be open-source under a specific license (MIT, Apache-2.0, etc.), add a LICENSE file or let us know and I can add one.
+Rendering work is hard to review by reading diffs, so the repository carries its
+own visual harness. All of it runs headless Chromium against a real build.
+
+```bash
+node tools/verify.mjs                                  # integration checks
+node tools/shoot.mjs --label mywork --shots overview   # capture PNGs
+node tools/probe.mjs --shot overview --patch valley:820,760,40,40 \
+  --case baseline: --case nofog:'VS_ATMO.skyUniforms.uFogA.value.set(0,1,0,1)'
+node tools/compare.mjs --a baseline --b mywork --blind # A/B sheets
+```
+
+- **`verify.mjs`** asserts the invariants that only break where systems meet:
+  the engine boots, systems register, geometry draws, nothing faulted, and the
+  frame is not black, blown out, flat, detail-free, temporally unstable or
+  broken by a resize. It reports frame statistics — mean, standard deviation,
+  histogram occupancy, edge energy — which make "is this actually better?" a
+  number rather than an opinion.
+- **`shoot.mjs`** drives named camera presets from `src/game/ShotPresets.ts`.
+  Framing is deliberately stable so iterations stay comparable.
+- **`probe.mjs`** reports mean sRGB of named pixel patches across a list of
+  conditions evaluated live in the page. Every colour defect in this project was
+  ultimately found with it rather than by eye.
+
+Two things worth knowing before extending the tooling. Capture reads the WebGL
+buffer with `gl.readPixels` and encodes the PNG in Node, because
+`canvas.toDataURL('image/png')` costs 30–50 s per frame under software
+rasterisation. And frames are captured with the loop frozen and stepped a fixed
+number of times, so a capture is reproducible rather than whatever the scheduler
+happened to present.
+
+## Legacy
+
+`Verdium Storm — Three.js RTS-kimik3.html` is the original single-file Three.js
+r128 demo this project grew out of. It is kept for reference and is not part of
+the build.
