@@ -311,7 +311,10 @@ export class Effects implements System, EffectsService {
       this.addEmitter('plume', x, gh + s * 0.3, z, s * 0.85, profile.column, 5.5);
     }
     if (profile.burn > 0) {
-      this.addEmitter('wreck', x, gh + s * 0.15, z, s * 0.7, profile.burn, 7);
+      // Each puff lingers 3-7s (see wreckPuff), so a rate much above this keeps
+      // more copies alive at once than the screen can stay readable through —
+      // and a battle usually has several of these burning at the same time.
+      this.addEmitter('wreck', x, gh + s * 0.15, z, s * 0.7, profile.burn, 3.5);
     }
 
     // Nukes get their own mushroom: a delayed cap that rises out of the stem
@@ -846,11 +849,11 @@ export class Effects implements System, EffectsService {
         .at(x + Math.cos(a) * r, y + this.rng() * s * 0.6, z + Math.sin(a) * r)
         .vel(Math.cos(a) * s * (0.8 + this.rng()), s * (1.4 + this.rng() * 2.6), Math.sin(a) * s * (0.8 + this.rng()))
         .life(life * (0.55 + this.rng() * 0.75))
-        .size(s * (0.7 + this.rng() * 0.6), s * (2.4 + this.rng() * 2.6), 0.62)
+        .size(s * (0.6 + this.rng() * 0.5), s * (1.7 + this.rng() * 1.8), 0.62)
         .spin((this.rng() - 0.5) * 0.85)
         .delay(t * 0.5 + this.rng() * 0.2)
         .physics(0.62, s * 0.22, 0.55)
-        .look(ramp, this.rng() < 0.5 ? SPRITE.SMOKE_A : SPRITE.SMOKE_B, 0.95, 0xffffff)
+        .look(ramp, this.rng() < 0.5 ? SPRITE.SMOKE_A : SPRITE.SMOKE_B, 0.75, 0xffffff)
         .soft(s * 1.1 + 1.5).wind(1).emit();
     }
   }
@@ -1043,10 +1046,10 @@ export class Effects implements System, EffectsService {
     p.soft().at(x + Math.cos(a) * r, y + s * 0.5, z + Math.sin(a) * r)
       .vel(Math.cos(a) * s * 0.4, s * (1.5 + this.rng() * 1.5), Math.sin(a) * s * 0.4)
       .life(3.2 + this.rng() * 3.5)
-      .size(s * 0.7, s * (2.8 + this.rng() * 2.2), 0.6)
+      .size(s * 0.55, s * (2.0 + this.rng() * 1.7), 0.6)
       .spin((this.rng() - 0.5) * 0.6)
       .physics(0.55, s * 0.2, 0.55)
-      .look(RAMP.OIL_SMOKE, this.rng() < 0.5 ? SPRITE.SMOKE_B : SPRITE.PLUME, 0.85, 0xffffff)
+      .look(RAMP.OIL_SMOKE, this.rng() < 0.5 ? SPRITE.SMOKE_B : SPRITE.PLUME, 0.65, 0xffffff)
       .soft(s * 1.1 + 1.5).wind(1).emit();
 
     if (this.rng() < 0.5) {
