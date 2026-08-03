@@ -15,6 +15,7 @@ import { AlertFeed } from './Alerts';
 import { SelectionPanel } from './SelectionPanel';
 import { WorldLayer } from './WorldLayer';
 import { Menu, type MenuOptions } from './Menu';
+import { Settings, type SettingsValues } from './Settings';
 import { asProbe, simProbe, type WorldProbe } from './WorldProbe';
 import { div, el, shieldInput } from './dom';
 
@@ -47,6 +48,8 @@ const PANEL_HZ = 30;
 interface RigLike {
   target: THREE.Vector3;
   distance: number;
+  edgeScrollEnabled?: boolean;
+  panSpeedMultiplier?: number;
   setPose(
     pose: { target?: THREE.Vector3; distance?: number; yaw?: number; pitch?: number },
     instant?: boolean,
@@ -68,6 +71,10 @@ export class Hud implements System {
   private tooltip!: Tooltip;
   private menu!: Menu;
   private pause!: HTMLDivElement;
+  private settings!: Settings;
+  private settingsValues: SettingsValues = { edgeScroll: true, camSpeed: 1, healthBars: true, fogOfWar: true };
+  /** Whether the match was already paused when Settings was opened, so closing it restores rather than resumes. */
+  private settingsPrevPaused = false;
 
   private camera!: THREE.PerspectiveCamera;
   private viewport!: HTMLElement;
@@ -104,12 +111,24 @@ export class Hud implements System {
     applyTheme(this.root, this.theme);
 
     this.world = new WorldLayer(this.root, this.mock !== null);
-    this.topBar = new TopBar(this.root, this.theme, () => this.togglePause(), () => this.openMenu());
+    this.topBar = new TopBar(
+      this.root,
+      this.theme,
+      () => this.togglePause(),
+      () => this.openMenu(),
+      () => this.openSettings(),
+    );
     this.alerts = new AlertFeed(this.root, () => this.game);
     this.selection = new SelectionPanel(this.root, this.theme, () => this.game);
     this.tooltip = new Tooltip(this.root);
     this.sidebar = new Sidebar(this.root, this.theme, this.tooltip, () => this.game, (x, z) => this.seek(x, z));
     this.pause = this.buildPause();
+    this.settings = new Settings(
+      this.root,
+      this.settingsValues,
+      (key, value) => this.applySetting(key, value),
+      () => this.closeSettings(),
+    );
     this.menu = new Menu(
       this.root,
       (faction) => this.startMatch(faction),
@@ -263,6 +282,13 @@ export class Hud implements System {
       e.stopPropagation();
       this.setPaused(false);
     });
+    const settings = div('vs-mbtn', buttons);
+    settings.textContent = 'SETTINGS';
+    settings.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.openSettings();
+    });
     const quit = div('vs-mbtn', buttons);
     quit.textContent = 'MAIN MENU';
     quit.addEventListener('pointerdown', (e) => {
@@ -281,6 +307,30 @@ export class Hud implements System {
     this.setPaused(true);
     this.pause.classList.remove('on');
     this.menu.show();
+  }
+
+  /** Opens Settings from either the top bar (mid-action) or the pause screen. */
+  private openSettings(): void {
+    this.settingsPrevPaused = this.game.paused;
+    this.setPaused(true);
+    this.pause.classList.remove('on');
+    this.settings.show();
+  }
+
+  private closeSettings(): void {
+    this.settings.hide();
+    this.setPaused(this.settingsPrevPaused);
+  }
+
+  private applySetting<K extends keyof SettingsValues>(key: K, value: SettingsValues[K]): void {
+    if (key === 'healthBars' || key === 'fogOfWar') {
+      this.applyOption(key as keyof MenuOptions, value as boolean);
+      return;
+    }
+    const rig = this.rig();
+    if (!rig) return;
+    if (key === 'edgeScroll') rig.edgeScrollEnabled = value as boolean;
+    else if (key === 'camSpeed') rig.panSpeedMultiplier = value as number;
   }
 
   private startMatch(faction: Faction): void {

@@ -470,7 +470,7 @@ export type GlyphId =
   | 'credits' | 'power' | 'time' | 'units' | 'kills' | 'losses'
   | 'insufficientFunds' | 'lowPower' | 'baseUnderAttack' | 'unitLost'
   | 'buildingComplete' | 'unitReady' | 'newTech' | 'harvesterLost'
-  | 'shield' | 'target' | 'chevron' | 'pause' | 'menu';
+  | 'shield' | 'target' | 'chevron' | 'pause' | 'menu' | 'gear';
 
 type Path = Array<Array<[number, number]>>;
 
@@ -581,6 +581,17 @@ const GLYPHS: Record<GlyphId, Path> = {
     [[14, 22], [86, 22], [86, 34], [14, 34]],
     [[14, 44], [86, 44], [86, 56], [14, 56]],
     [[14, 66], [86, 66], [86, 78], [14, 78]],
+  ],
+  // Three equaliser sliders at different offsets — reads as "settings" at a
+  // glance without needing a true gear (which does not render cleanly as a
+  // handful of coarse polygons at 26px).
+  gear: [
+    [[10, 21], [90, 21], [90, 29], [10, 29]],
+    [[26, 12], [42, 12], [42, 38], [26, 38]],
+    [[10, 46], [90, 46], [90, 54], [10, 54]],
+    [[58, 37], [74, 37], [74, 63], [58, 63]],
+    [[10, 71], [90, 71], [90, 79], [10, 79]],
+    [[18, 62], [34, 62], [34, 88], [18, 88]],
   ],
 };
 

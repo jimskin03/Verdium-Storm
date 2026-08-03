@@ -791,6 +791,20 @@ function css(): string {
 .vs-pause .ttl { font-family: var(--font-display); font-size: 44px; letter-spacing: .34em; text-indent: .34em; color: var(--accent-soft); text-shadow: 0 0 34px rgba(255,180,42,.4); }
 .vs-pause .sub { font-family: var(--font-display); font-size: 10px; letter-spacing: .4em; color: var(--ink-mute); text-indent: .4em; }
 
+/* settings */
+.vs-settings {
+  position: absolute; inset: 0; display: none; pointer-events: auto;
+  align-items: center; justify-content: center;
+  background: rgba(3,6,9,.78); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.vs-settings.on { display: flex; }
+.vs-setpanel { width: min(480px, 84vw); }
+.vs-setpanel .in { padding: 22px 26px 26px; display: flex; flex-direction: column; gap: 18px; }
+.vs-setrows { display: flex; flex-direction: column; gap: 14px; }
+.vs-setrow { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.vs-setrow > b { font-family: var(--font-display); font-size: 11px; letter-spacing: .22em; color: var(--ink-dim); font-weight: 400; }
+.vs-setpanel .vs-mbtns { justify-content: center; }
+
 /* --------------------------------------------------------------- boot in */
 
 .vs-hud[data-phase="match"] .vs-sidebar { animation: vs-slide-r .55s cubic-bezier(.16,.9,.3,1); }
