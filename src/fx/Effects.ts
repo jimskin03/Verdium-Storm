@@ -47,8 +47,12 @@ const SOFT_CAP: Record<QualityTier, number> = { low: 320, medium: 800, high: 170
 /** Dynamic point lights. Constant cost, so it stays small. */
 const LIGHTS: Record<QualityTier, number> = { low: 0, medium: 2, high: 4, ultra: 4 };
 
-/** Simultaneous lingering emitters (smoke columns, burning wrecks). */
-const EMITTERS: Record<QualityTier, number> = { low: 4, medium: 10, high: 20, ultra: 26 };
+/**
+ * Simultaneous lingering emitters (smoke columns, burning wrecks). This is a
+ * readability limit as much as a performance one — past roughly a dozen live
+ * columns the mid-map fight is behind a wall regardless of per-puff alpha.
+ */
+const EMITTERS: Record<QualityTier, number> = { low: 4, medium: 8, high: 13, ultra: 16 };
 
 /**
  * Per-kind detonation recipe. Counts are pre-density; `radius` scales the whole
@@ -84,60 +88,69 @@ interface Profile {
   lightColor: number;
 }
 
+/**
+ * Smoke counts and lifetimes are the other half of the readability budget (the
+ * ramps in FxTextures are the first). An RTS fight puts a dozen of these events
+ * inside one screen: what matters is not how a single explosion looks in
+ * isolation but whether the player can still see the units after five of them.
+ * Fire, sparks and debris are short-lived and read as event, so they stay
+ * generous; smoke and dust are what linger and wall off the view, so they are
+ * deliberately lean.
+ */
 const PROFILES: Record<ExplosionKind, Profile> = {
   shell: {
     radius: 1.0,
     flash: 2, flashBright: 16,
     fire: 9, fireLife: 0.62, fireRamp: RAMP.FIRE_HOT,
-    smoke: 9, smokeLife: 3.4, smokeRamp: RAMP.SMOKE_DARK,
-    dust: 10, dustRamp: RAMP.DUST,
+    smoke: 5, smokeLife: 2.3, smokeRamp: RAMP.SMOKE_DARK,
+    dust: 7, dustRamp: RAMP.DUST,
     debris: 8, debrisRamp: RAMP.ROCK,
     sparks: 14, embers: 5,
-    ring: 3.4, secondaries: 0, column: 1.1, burn: 0,
+    ring: 3.4, secondaries: 0, column: 0.7, burn: 0,
     light: 900, lightColor: 0xffb066,
   },
   rocket: {
     radius: 1.25,
     flash: 3, flashBright: 20,
     fire: 15, fireLife: 0.85, fireRamp: RAMP.FIRE_HOT,
-    smoke: 14, smokeLife: 4.6, smokeRamp: RAMP.SMOKE_DARK,
-    dust: 13, dustRamp: RAMP.DUST,
+    smoke: 8, smokeLife: 3.1, smokeRamp: RAMP.SMOKE_DARK,
+    dust: 9, dustRamp: RAMP.DUST,
     debris: 10, debrisRamp: RAMP.ROCK,
     sparks: 20, embers: 9,
-    ring: 4.2, secondaries: 1, column: 2.2, burn: 0,
+    ring: 4.2, secondaries: 1, column: 1.3, burn: 0,
     light: 1500, lightColor: 0xffa050,
   },
   vehicle: {
     radius: 1.45,
     flash: 3, flashBright: 22,
     fire: 18, fireLife: 1.05, fireRamp: RAMP.FIRE_HOT,
-    smoke: 16, smokeLife: 6.0, smokeRamp: RAMP.OIL_SMOKE,
-    dust: 12, dustRamp: RAMP.DUST,
+    smoke: 9, smokeLife: 4.0, smokeRamp: RAMP.OIL_SMOKE,
+    dust: 8, dustRamp: RAMP.DUST,
     debris: 14, debrisRamp: RAMP.METAL,
     sparks: 26, embers: 14,
-    ring: 4.6, secondaries: 3, column: 3.0, burn: 11,
+    ring: 4.6, secondaries: 3, column: 1.8, burn: 6,
     light: 2600, lightColor: 0xff9840,
   },
   building: {
     radius: 1.9,
     flash: 4, flashBright: 20,
     fire: 20, fireLife: 1.3, fireRamp: RAMP.FIRE_SOFT,
-    smoke: 24, smokeLife: 8.5, smokeRamp: RAMP.SMOKE_DARK,
-    dust: 26, dustRamp: RAMP.CONCRETE,
+    smoke: 13, smokeLife: 5.4, smokeRamp: RAMP.SMOKE_DARK,
+    dust: 16, dustRamp: RAMP.CONCRETE,
     debris: 22, debrisRamp: RAMP.CONCRETE,
     sparks: 18, embers: 16,
-    ring: 6.0, secondaries: 4, column: 6.5, burn: 16,
+    ring: 6.0, secondaries: 4, column: 3.6, burn: 9,
     light: 4200, lightColor: 0xffa858,
   },
   nuke: {
     radius: 3.4,
     flash: 6, flashBright: 42,
     fire: 30, fireLife: 2.1, fireRamp: RAMP.FIRE_HOT,
-    smoke: 34, smokeLife: 13.0, smokeRamp: RAMP.SMOKE_DARK,
-    dust: 34, dustRamp: RAMP.DUST,
+    smoke: 22, smokeLife: 9.0, smokeRamp: RAMP.SMOKE_DARK,
+    dust: 22, dustRamp: RAMP.DUST,
     debris: 26, debrisRamp: RAMP.ROCK,
     sparks: 34, embers: 26,
-    ring: 11.0, secondaries: 6, column: 14.0, burn: 20,
+    ring: 11.0, secondaries: 6, column: 9.0, burn: 12,
     light: 16000, lightColor: 0xfff0cc,
   },
 };
@@ -308,13 +321,13 @@ export class Effects implements System, EffectsService {
     }
 
     if (profile.column > 0) {
-      this.addEmitter('plume', x, gh + s * 0.3, z, s * 0.85, profile.column, 5.5);
+      this.addEmitter('plume', x, gh + s * 0.3, z, s * 0.85, profile.column, 3.0);
     }
     if (profile.burn > 0) {
       // Each puff lingers 3-7s (see wreckPuff), so a rate much above this keeps
       // more copies alive at once than the screen can stay readable through —
       // and a battle usually has several of these burning at the same time.
-      this.addEmitter('wreck', x, gh + s * 0.15, z, s * 0.7, profile.burn, 3.5);
+      this.addEmitter('wreck', x, gh + s * 0.15, z, s * 0.7, profile.burn, 2.0);
     }
 
     // Nukes get their own mushroom: a delayed cap that rises out of the stem
@@ -1021,11 +1034,11 @@ export class Effects implements System, EffectsService {
     this.particles.soft()
       .at(x + Math.cos(a) * r, y + this.rng() * s * 0.3, z + Math.sin(a) * r)
       .vel(Math.cos(a) * s * 0.5, s * (1.1 + this.rng() * 1.4), Math.sin(a) * s * 0.5)
-      .life(3.5 + this.rng() * 4.5 + s * 0.25)
-      .size(s * (0.55 + this.rng() * 0.4), s * (2.6 + this.rng() * 2.4), 0.6)
+      .life(2.4 + this.rng() * 3.0 + s * 0.2)
+      .size(s * (0.5 + this.rng() * 0.35), s * (2.0 + this.rng() * 1.8), 0.6)
       .spin((this.rng() - 0.5) * 0.7)
       .physics(0.5, s * 0.16, 0.5)
-      .look(RAMP.SMOKE_DARK, this.rng() < 0.5 ? SPRITE.SMOKE_A : SPRITE.PLUME, 0.6 + 0.4 * fade, 0xffffff)
+      .look(RAMP.SMOKE_DARK, this.rng() < 0.5 ? SPRITE.SMOKE_A : SPRITE.PLUME, 0.45 + 0.3 * fade, 0xffffff)
       .soft(s * 1.1 + 1.5).wind(1).emit();
   }
 
@@ -1045,11 +1058,11 @@ export class Effects implements System, EffectsService {
 
     p.soft().at(x + Math.cos(a) * r, y + s * 0.5, z + Math.sin(a) * r)
       .vel(Math.cos(a) * s * 0.4, s * (1.5 + this.rng() * 1.5), Math.sin(a) * s * 0.4)
-      .life(3.2 + this.rng() * 3.5)
-      .size(s * 0.55, s * (2.0 + this.rng() * 1.7), 0.6)
+      .life(2.2 + this.rng() * 2.4)
+      .size(s * 0.48, s * (1.6 + this.rng() * 1.4), 0.6)
       .spin((this.rng() - 0.5) * 0.6)
       .physics(0.55, s * 0.2, 0.55)
-      .look(RAMP.OIL_SMOKE, this.rng() < 0.5 ? SPRITE.SMOKE_B : SPRITE.PLUME, 0.65, 0xffffff)
+      .look(RAMP.OIL_SMOKE, this.rng() < 0.5 ? SPRITE.SMOKE_B : SPRITE.PLUME, 0.5, 0xffffff)
       .soft(s * 1.1 + 1.5).wind(1).emit();
 
     if (this.rng() < 0.5) {

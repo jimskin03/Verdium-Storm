@@ -843,8 +843,392 @@ function harvester(b: PartBuilder, faction: Faction, detail: number): VehicleBui
   return { builder: b, def };
 }
 
+/**
+ * Six-wheeled armoured carrier. Tall, slab-sided and boxy — it has to read as
+ * a bus with armour on it next to the low, raked fighting vehicles, or players
+ * will keep mistaking it for a tank and sending it into one.
+ */
+function apc(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
+  const pal = PALETTES[faction];
+  const k = T(pal);
+  const rig = new RigBuilder();
+  const def = emptyRig('wheeled');
+  const root = rig.add('root', -1, 0, 0, 0);
+  const hull = rig.add('hull', root, 0, 0, 0);
+  def.hull = hull;
+  def.height = 3.2;
+  def.radius = 2.4;
+  def.recoilTravel = 0.08;
+  def.turretRate = 3.2;
+  b.bone(hull);
+  const nod = faction === 'nod';
+
+  // Hull: a deep monocoque with a sharply sloped bow plate.
+  b.use(k.armour);
+  b.box(0, 1.35, -0.2, 3.3, 1.5, 6.6, 0.14);
+  b.use(k.paint);
+  b.box(0, 2.35, -0.5, 3.15, 0.8, 5.4, 0.12);
+  b.push();
+  b.move(0, 1.95, 3.05);
+  b.rotX(nod ? -0.8 : -0.62);
+  b.prism(rect(3.3, 2.0), 0.28, 0.09);
+  b.pop();
+
+  // Vision blocks along the troop bay, and the rear ramp.
+  b.use(k.glass);
+  for (const s of [-1, 1]) {
+    for (let i = 0; i < 3; i++) b.box(s * 1.62, 2.42, 1.0 - i * 1.35, 0.08, 0.34, 0.6, 0.02);
+  }
+  b.use(k.dark);
+  b.box(0, 1.9, -3.3, 2.5, 1.9, 0.22, 0.06);
+  b.use(k.dmetal);
+  b.box(0, 0.95, -3.5, 2.3, 0.16, 0.5, 0.04);
+
+  // Roof hatches and stowage rails.
+  b.use(k.paint2);
+  b.box(nod ? 0.85 : -0.85, 2.8, 1.5, 1.0, 0.16, 1.0, 0.04);
+  if (detail > 0) {
+    b.use(k.dmetal);
+    for (const s of [-1, 1]) b.rivets(s * 1.6, 2.72, -2.6, s * 1.6, 2.72, 2.2, 8, 0.055);
+    b.use(k.rust);
+    b.box(1.1, 2.86, -2.2, 0.7, 0.32, 1.5, 0.05);
+    b.use(k.lamp);
+    for (const s of [-1, 1]) b.box(s * 1.3, 2.5, 3.3, 0.26, 0.2, 0.12, 0.04);
+  }
+
+  // Fenders over three axles a side.
+  b.use(k.paint2);
+  for (const s of [-1, 1]) {
+    for (const z of [2.05, 0, -2.05]) b.box(s * 1.72, 1.72, z, 0.34, 0.16, 1.5, 0.05);
+  }
+  for (const s of [-1, 1]) chevron(b, k, s * 1.66, 1.95, -1.2, 0.55, s);
+  b.use(k.teamLight);
+  b.box(0, 2.84, -2.9, 0.44, 0.1, 0.08, 0.02);
+
+  for (const s of [-1, 1]) {
+    roadWheel(b, rig, def, hull, k, s * 1.62, 0.78, 2.05, 0.78, 0.5, true, detail);
+    roadWheel(b, rig, def, hull, k, s * 1.62, 0.78, 0, 0.78, 0.5, false, detail);
+    roadWheel(b, rig, def, hull, k, s * 1.62, 0.78, -2.05, 0.78, 0.5, false, detail);
+  }
+
+  // Remote weapon station: small, offset, unmistakably not a tank turret.
+  const turret = rig.add('turret', hull, nod ? -0.7 : 0.7, 2.85, 0.9);
+  def.turret = turret;
+  def.elevMin = -0.2;
+  def.elevMax = 0.9;
+  b.bone(turret);
+  b.push();
+  b.move(...rig.world(turret));
+  b.use(k.dmetal);
+  b.tube(0, 0.06, 0, 0.36, 0.4, 0.16, detail > 0 ? 10 : 7);
+  b.use(k.paint2);
+  b.box(0, 0.32, -0.05, 0.62, 0.42, 0.7, 0.06);
+  b.use(k.glass);
+  b.box(0, 0.36, 0.3, 0.3, 0.2, 0.08, 0.02);
+  b.pop();
+
+  const barrel = rig.add('barrel', turret, 0, 0.36, 0.3);
+  def.barrel = barrel;
+  def.muzzle = [0, 0, 1.4];
+  b.bone(barrel);
+  b.push();
+  b.move(...rig.world(barrel));
+  b.use(k.dark);
+  b.box(0, 0, 0.2, 0.22, 0.22, 0.62, 0.04);
+  gunBarrel(b, k, 1.3, 0.07, false, detail);
+  b.pop();
+
+  b.bone(hull);
+  antenna(b, k, nod ? 1.35 : -1.35, 2.75, -2.5, 2.2, detail);
+
+  def.bones = rig.bones;
+  return { builder: b, def };
+}
+
+/**
+ * Wheeled rocket artillery: a flatbed truck carrying an elevating rack of
+ * launch tubes. The rack is the barrel bone, so it pitches up to fire and the
+ * recoil spring rocks it back — which is most of what sells the salvo.
+ */
+function mlrs(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
+  const pal = PALETTES[faction];
+  const k = T(pal);
+  const rig = new RigBuilder();
+  const def = emptyRig('wheeled');
+  const root = rig.add('root', -1, 0, 0, 0);
+  const hull = rig.add('hull', root, 0, 0, 0);
+  def.hull = hull;
+  def.height = 3.4;
+  def.radius = 2.6;
+  def.recoilTravel = 0.3;
+  def.turretRate = 1.6;
+  b.bone(hull);
+  const nod = faction === 'nod';
+
+  // Chassis rails and a forward cab.
+  b.use(k.armour);
+  b.box(0, 1.15, -0.4, 2.9, 0.85, 7.0, 0.12);
+  b.use(k.paint);
+  b.box(0, 2.15, 2.35, 2.9, 1.5, 2.3, 0.13);
+  b.use(k.glass);
+  b.push();
+  b.move(0, 2.5, 3.5);
+  b.rotX(-0.34);
+  b.prism(trap(2.5, 2.2, 1.1) as Vec2[], 0.08, 0.03);
+  b.pop();
+  b.use(k.dark);
+  b.box(0, 1.5, 3.6, 2.7, 0.5, 0.3, 0.06);
+  b.use(k.paint2);
+  b.box(0, 2.95, 2.3, 2.6, 0.16, 2.0, 0.05);
+
+  // Flatbed deck with stabiliser legs — the artillery tell on a wheeled hull.
+  b.use(k.paint2);
+  b.box(0, 1.7, -1.9, 2.8, 0.3, 4.0, 0.07);
+  b.use(k.steel);
+  for (const s of [-1, 1]) {
+    b.push();
+    b.move(s * 1.5, 1.2, -3.4);
+    b.rotZ(s * 0.4);
+    b.box(0, 0, 0, 0.22, 1.0, 0.5, 0.05);
+    b.pop();
+  }
+  if (detail > 0) {
+    b.use(k.dmetal);
+    b.box(1.35, 1.95, 0.4, 0.5, 0.4, 1.2, 0.05);
+    b.use(k.rust);
+    b.box(-1.35, 1.95, 0.4, 0.5, 0.4, 1.2, 0.05);
+  }
+
+  for (const s of [-1, 1]) {
+    roadWheel(b, rig, def, hull, k, s * 1.5, 0.74, 2.6, 0.74, 0.46, true, detail);
+    roadWheel(b, rig, def, hull, k, s * 1.5, 0.74, -1.1, 0.74, 0.46, false, detail);
+    roadWheel(b, rig, def, hull, k, s * 1.5, 0.74, -2.75, 0.74, 0.46, false, detail);
+  }
+  for (const s of [-1, 1]) chevron(b, k, s * 1.5, 2.3, 2.3, 0.5, s);
+  b.use(k.teamLight);
+  b.box(0, 3.05, 1.4, 0.4, 0.1, 0.08, 0.02);
+
+  // Traversing base under the rack.
+  const turret = rig.add('turret', hull, 0, 2.0, -1.9);
+  def.turret = turret;
+  def.elevMin = 0.12;
+  def.elevMax = 0.95;
+  b.bone(turret);
+  b.push();
+  b.move(...rig.world(turret));
+  b.use(k.dmetal);
+  b.tube(0, 0.1, 0, 0.75, 0.8, 0.24, detail > 0 ? 12 : 8);
+  b.use(k.paint2);
+  for (const s of [-1, 1]) b.box(s * 0.85, 0.6, 0, 0.24, 0.9, 0.7, 0.05);
+  b.pop();
+
+  // The rack: two rows of tubes in a boxed frame.
+  const barrel = rig.add('barrel', turret, 0, 0.85, 0);
+  def.barrel = barrel;
+  def.muzzle = [0, 0, 2.2];
+  b.bone(barrel);
+  b.push();
+  b.move(...rig.world(barrel));
+  b.use(k.dark);
+  b.box(0, 0, 0, 2.3, 1.05, 3.4, 0.09);
+  b.use(k.dmetal);
+  const cols = nod ? 3 : 4;
+  for (let c = 0; c < cols; c++) {
+    for (const sy of [-1, 1]) {
+      const x = (c / (cols - 1) - 0.5) * (nod ? 1.5 : 1.7);
+      b.push();
+      b.move(x, sy * 0.26, 0);
+      b.rotX(Math.PI / 2);
+      b.tube(0, 0, 0, 0.21, 0.21, 3.5, detail > 0 ? 9 : 6, false, true);
+      b.pop();
+    }
+  }
+  b.use(k.glow);
+  for (let c = 0; c < cols; c++) {
+    for (const sy of [-1, 1]) {
+      const x = (c / (cols - 1) - 0.5) * (nod ? 1.5 : 1.7);
+      b.slab(x, sy * 0.26, 1.76, 0.28, 0.28, 0.04);
+    }
+  }
+  b.use(k.steel);
+  b.box(0, 0, -1.6, 2.4, 1.15, 0.22, 0.05);
+  b.pop();
+
+  b.bone(hull);
+  antenna(b, k, nod ? -1.2 : 1.2, 2.9, 1.4, 2.4, detail);
+
+  def.bones = rig.bones;
+  return { builder: b, def };
+}
+
+/**
+ * Heavy assault tank. Two of everything — two tracks a side is the classic
+ * read, but that costs a lot of geometry, so the silhouette leans on a wider
+ * hull, a taller turret with twin barrels and shoulder missile pods instead.
+ */
+function mammoth(b: PartBuilder, faction: Faction, detail: number): VehicleBuild {
+  const pal = PALETTES[faction];
+  const k = T(pal);
+  const rig = new RigBuilder();
+  const def = emptyRig('tracked');
+  const root = rig.add('root', -1, 0, 0, 0);
+  const hull = rig.add('hull', root, 0, 0, 0);
+  def.hull = hull;
+  def.height = 4.4;
+  def.radius = 3.8;
+  def.recoilTravel = 0.7;
+  def.turretRate = 0.95;
+  b.bone(hull);
+  const nod = faction === 'nod';
+
+  // Hull: wider and deeper than the battle tank, with a heavy applique belt.
+  b.use(k.armour);
+  b.box(0, 1.25, -0.1, 5.6, 1.5, 8.6, 0.16);
+  b.push();
+  b.move(0, 2.05, 3.6);
+  b.rotX(nod ? -0.7 : -0.52);
+  b.use(k.paint);
+  b.prism(rect(5.6, 2.5), 0.4, 0.12);
+  b.pop();
+  b.use(k.paint);
+  b.box(0, 2.55, -0.6, 5.4, 1.0, 7.0, 0.15);
+  b.use(k.paint2);
+  b.box(0, 3.25, -3.0, 4.4, 0.5, 2.4, 0.1);
+  b.use(k.dmetal);
+  b.vents(0, 3.52, -3.0, 3.9, 2.2, 8);
+  if (detail > 0) {
+    b.use(k.steel);
+    for (const s of [-1, 1]) b.tube(s * 1.9, 3.7, -4.1, 0.19, 0.24, 0.85, 8);
+  }
+
+  // Bar armour skirts and spaced plate over the running gear.
+  b.use(k.paint2);
+  for (const s of [-1, 1]) {
+    b.box(s * 2.98, 1.75, -0.2, 0.2, 1.7, 7.6, 0.06);
+    b.box(s * 2.98, 3.0, 2.6, 0.24, 0.26, 2.4, 0.05);
+    b.box(s * 2.98, 3.0, -3.0, 0.24, 0.26, 2.2, 0.05);
+  }
+  if (detail > 0) {
+    b.use(k.dmetal);
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 6; i++) {
+        b.box(s * 3.14, 2.4, -2.9 + i * 1.1, 0.1, 1.0, 0.12, 0.03);
+      }
+    }
+    b.use(k.tread);
+    for (let i = 0; i < 5; i++) b.slab(-2.0 + i * 0.46, 3.1, 3.3, 0.4, 0.15, 0.55);
+    b.use(k.lamp);
+    for (const s of [-1, 1]) b.box(s * 2.3, 3.05, 3.9, 0.32, 0.26, 0.16, 0.04);
+  }
+  b.use(k.steel);
+  for (const s of [-1, 1]) b.box(s * 1.8, 1.35, 4.5, 0.32, 0.34, 0.44, 0.06);
+
+  for (const s of [-1, 1]) {
+    runningGear(b, rig, def, hull, k, {
+      zRear: -3.35, zFront: 3.4, y: 0.86, radius: 0.8, width: 1.08, x: s * 2.4,
+      links: detail > 0 ? 15 : 9, wheels: 6,
+    }, detail);
+  }
+
+  // Turret: tall casting with a bustle rack and shoulder missile boxes.
+  const turret = rig.add('turret', hull, 0, 3.3, -0.2);
+  def.turret = turret;
+  def.elevMin = -0.14;
+  def.elevMax = 0.95;
+  b.bone(turret);
+  b.push();
+  b.move(...rig.world(turret));
+  b.use(k.paint);
+  const plan: Vec2[] = nod
+    ? [[-2.2, -2.1], [2.2, -2.1], [1.8, 0.9], [0, 2.7], [-1.8, 0.9]]
+    : [[-2.0, -2.3], [2.0, -2.3], [2.4, -0.6], [2.0, 1.9], [-2.0, 1.9], [-2.4, -0.6]];
+  b.prismY(plan, 1.25, 0.18, 0, 0.62, 0);
+  b.use(k.paint2);
+  b.prismY(plan.map((p) => [p[0] * 0.8, p[1] * 0.82] as Vec2), 0.4, 0.1, 0, 1.45, 0.1);
+
+  // Mantlet, wide enough for two tubes.
+  b.use(k.armour);
+  b.push();
+  b.move(0, 0.68, nod ? 2.4 : 2.0);
+  b.prismY(trap(2.3, 1.7, 1.2), 1.25, 0.16, 0, 0, 0);
+  b.pop();
+
+  // Shoulder missile pods — the mammoth's anti-air answer, and its silhouette.
+  for (const s of [-1, 1]) {
+    b.use(k.dark);
+    b.box(s * 2.05, 1.15, -0.7, 0.85, 0.8, 1.9, 0.08);
+    b.use(k.dmetal);
+    for (const sy of [-1, 1]) {
+      b.push();
+      b.move(s * 2.05, 1.15 + sy * 0.2, 0.28);
+      b.rotX(Math.PI / 2);
+      b.tube(0, 0.05, 0, 0.24, 0.24, 0.2, 8, false, true);
+      b.pop();
+    }
+    b.use(k.glow);
+    for (const sy of [-1, 1]) b.slab(s * 2.05, 1.15 + sy * 0.2, 0.4, 0.3, 0.3, 0.03);
+  }
+
+  b.use(k.paint2);
+  b.tube(nod ? 0.95 : -1.0, 1.55, -0.6, 0.55, 0.6, 0.46, detail > 0 ? 12 : 8);
+  b.use(k.dark);
+  b.tube(nod ? 0.95 : -1.0, 1.82, -0.6, 0.5, 0.54, 0.12, detail > 0 ? 12 : 8);
+  if (detail > 0) {
+    b.use(k.steel);
+    b.box(0, 1.72, -1.7, 1.3, 0.16, 0.6, 0.04);
+    b.use(k.dmetal);
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        b.push();
+        b.move(s * (1.55 + i * 0.02), 1.25, -0.8 - i * 0.32);
+        b.rotZ(s * -0.5);
+        b.tube(0, 0, 0, 0.12, 0.12, 0.44, 6);
+        b.pop();
+      }
+    }
+  }
+  for (const s of [-1, 1]) chevron(b, k, s * (nod ? 1.85 : 2.15), 0.95, -0.7, 0.7, s);
+  b.use(k.teamLight);
+  b.box(0, 1.75, -2.1, 0.6, 0.14, 0.1, 0.03);
+  antenna(b, k, nod ? -1.6 : 1.6, 1.7, -1.8, 2.1, detail);
+  b.pop();
+
+  // Twin barrels on one elevation bone.
+  const barrel = rig.add('barrel', turret, 0, 0.7, nod ? 2.7 : 2.3);
+  def.barrel = barrel;
+  def.muzzle = [0, 0, nod ? 5.0 : 4.6];
+  b.bone(barrel);
+  b.push();
+  b.move(...rig.world(barrel));
+  for (const s of [-1, 1]) {
+    b.push();
+    b.move(s * 0.42, 0, 0);
+    gunBarrel(b, k, nod ? 4.9 : 4.5, 0.19, true, detail);
+    b.pop();
+  }
+  b.use(k.dark);
+  b.box(0, 0, 0.3, 1.35, 0.5, 0.8, 0.06);
+  b.pop();
+
+  b.bone(hull);
+  stowage(b, k, nod ? -1.9 : 1.9, 3.32, -2.4, detail);
+
+  const panel = rig.add('panelA', hull, 0, 3.5, -1.9);
+  def.panels.push(panel);
+  b.bone(panel);
+  b.push();
+  b.move(...rig.world(panel));
+  b.use(k.paint2);
+  b.box(0, 0.06, -0.55, 3.0, 0.16, 1.1, 0.05);
+  b.pop();
+  b.bone(hull);
+
+  def.bones = rig.bones;
+  return { builder: b, def };
+}
+
 export function buildVehicle(
-  type: 'tank' | 'artillery' | 'aa' | 'scout' | 'harvester',
+  type: 'tank' | 'artillery' | 'aa' | 'scout' | 'harvester' | 'apc' | 'mlrs' | 'mammoth',
   faction: Faction,
   detail: number,
 ): VehicleBuild {
@@ -853,10 +1237,16 @@ export function buildVehicle(
   switch (type) {
     case 'tank':
       return tank(b, faction, detail);
+    case 'mammoth':
+      return mammoth(b, faction, detail);
     case 'artillery':
       return artillery(b, faction, detail);
+    case 'mlrs':
+      return mlrs(b, faction, detail);
     case 'aa':
       return aa(b, faction, detail);
+    case 'apc':
+      return apc(b, faction, detail);
     case 'scout':
       return scout(b, faction, detail);
     default:

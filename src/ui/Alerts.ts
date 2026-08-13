@@ -36,6 +36,7 @@ const TINT: Record<string, string> = {
   buildingComplete: '#63e08a',
   unitReady: '#63e08a',
   newTech: '#6fc9ff',
+  cannotBuild: '#ffb02e',
 };
 
 export class AlertFeed {

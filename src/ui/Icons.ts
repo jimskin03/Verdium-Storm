@@ -259,6 +259,24 @@ const UNIT_CAMEOS: Record<UnitType, (c: Cameo, accent: Rgb) => void> = {
     c.box(-20, 13, 14, 6, 4, 6, MAT.hullDark);
     c.prismXY([[16, 18], [34, 30], [37, 25], [19, 13]], -6, -2, MAT.hull);
   },
+  sniper: (c, a) => {
+    // One figure, prone-ish stance implied by the low ghillie drape, and a
+    // rifle long enough to be the silhouette on its own.
+    soldier(c, -2, 4, a, 1);
+    c.box(-2, 30, 4, 22, 9, 18, MAT.cloth);
+    c.prismXY([[-6, 24], [46, 36], [48, 30], [-4, 18]], -2, 2, MAT.gun);
+    c.prismXY([[10, 34], [26, 38], [26, 33], [10, 29]], -3, 3, MAT.hullDark);
+    c.prismXY([[46, 36], [56, 38], [56, 33], [48, 31]], -2, 2, MAT.hullDark);
+  },
+  flamer: (c, a) => {
+    soldier(c, 2, 2, a, 1.02);
+    // Twin fuel bottles on the back, and a stubby nozzle with a lit pilot.
+    c.prismXZ(Cameo.ngon(-18, 8, 8, 8), 12, 40, MAT.hull);
+    c.prismXZ(Cameo.ngon(-18, -6, 8, 8), 12, 40, MAT.hull);
+    c.box(-18, 42, 1, 20, 5, 8, MAT.hullDark);
+    c.prismXY([[12, 24], [36, 30], [37, 24], [13, 18]], -4, 2, MAT.gun);
+    c.prismXY([[36, 31], [46, 34], [47, 26], [37, 23]], -5, 3, MAT.hot, true);
+  },
   scout: (c, a) => {
     for (const [dx, dz] of [[-16, -12], [16, -12], [-16, 12], [16, 12]] as const) {
       c.box(dx, 0, dz, 13, 13, 9, MAT.rubber);
@@ -269,6 +287,51 @@ const UNIT_CAMEOS: Record<UnitType, (c: Cameo, accent: Rgb) => void> = {
     c.box(20, 17, 0, 12, 6, 14, MAT.glass, true);
     c.prismXY([[2, 30], [26, 30], [26, 26], [2, 26]], -3, 3, MAT.gun);
     c.box(-2, 30, 0, 4, 12, 4, MAT.hullDark);
+  },
+  apc: (c, a) => {
+    // Six wheels and a tall slab body: reads as a box on wheels, not a tank.
+    for (const dx of [-19, 0, 19]) {
+      c.box(dx, 0, -13, 12, 12, 9, MAT.rubber);
+      c.box(dx, 0, 13, 12, 12, 9, MAT.rubber);
+    }
+    c.box(0, 8, 0, 50, 22, 28, MAT.hull);
+    c.prismXY([[25, 8], [25, 30], [34, 22], [34, 10]], -14, 14, MAT.hull);
+    c.box(-2, 30, 0, 44, 3, 24, a);
+    c.box(6, 32, 0, 14, 8, 14, MAT.hullDark);
+    c.prismXY([[12, 36], [34, 36], [34, 31], [12, 31]], -3, 3, MAT.gun);
+    c.box(-10, 18, 15, 26, 8, 2, MAT.glass, true);
+  },
+  mlrs: (c, a) => {
+    for (const dx of [-20, 4, 20]) {
+      c.box(dx, 0, -13, 12, 12, 8, MAT.rubber);
+      c.box(dx, 0, 13, 12, 12, 8, MAT.rubber);
+    }
+    c.box(0, 8, 0, 52, 10, 26, MAT.hull);
+    c.box(20, 18, 0, 18, 14, 24, MAT.hullDark);
+    c.box(20, 26, 0, 14, 4, 20, MAT.glass, true);
+    // Elevated tube rack.
+    c.prismXY([[-30, 24], [12, 44], [16, 34], [-26, 14]], -14, 14, MAT.hullDark);
+    for (const dz of [-8, 0, 8]) {
+      c.prismXY([[-24, 26], [10, 42], [12, 38], [-22, 22]], dz - 3, dz + 3, MAT.gun);
+    }
+    c.prismXY([[10, 42], [18, 46], [20, 40], [12, 37]], -12, 12, MAT.hot, true);
+    c.box(-14, 22, 0, 6, 4, 26, a);
+  },
+  mammoth: (c, a) => {
+    c.box(0, 0, -15, 60, 17, 14, MAT.tread);
+    c.box(0, 0, 15, 60, 17, 14, MAT.tread);
+    c.box(0, 13, 0, 56, 14, 36, MAT.hull);
+    c.box(0, 27, 0, 36, 16, 28, MAT.hullDark);
+    c.box(0, 42, 0, 26, 3, 20, a);
+    // Twin barrels plus shoulder missile boxes.
+    c.prismXY([[12, 33], [52, 33], [52, 28], [12, 28]], -8, -3, MAT.gun);
+    c.prismXY([[12, 33], [52, 33], [52, 28], [12, 28]], 3, 8, MAT.gun);
+    c.box(52, 30, -6, 7, 8, 8, MAT.hullDark);
+    c.box(52, 30, 6, 7, 8, 8, MAT.hullDark);
+    c.box(-4, 32, -20, 16, 10, 10, MAT.hullDark);
+    c.box(-4, 32, 20, 16, 10, 10, MAT.hullDark);
+    c.box(4, 32, -20, 4, 4, 8, MAT.hot, true);
+    c.box(4, 32, 20, 4, 4, 8, MAT.hot, true);
   },
   tank: (c, a) => {
     c.box(0, 0, -13, 54, 14, 12, MAT.tread);
@@ -377,6 +440,17 @@ const BUILDING_CAMEOS: Record<BuildingType, (c: Cameo, accent: Rgb) => void> = {
     c.box(-32, 7, -26, 14, 32, 14, MAT.concrete);
     c.box(-32, 39, -26, 8, 4, 8, MAT.energy, true);
   },
+  pillbox: (c, a) => {
+    c.box(0, 0, 0, 54, 8, 54, MAT.concreteDark);
+    // Squat tapered casemate with a dark embrasure slit.
+    c.prismXY([[-20, 8], [20, 8], [14, 32], [-14, 32]], -20, 20, MAT.concrete);
+    c.box(0, 32, 0, 34, 5, 34, MAT.concreteDark);
+    c.box(14, 22, 0, 6, 7, 26, MAT.hullDark);
+    c.prismXY([[16, 26], [40, 26], [40, 21], [16, 21]], -3, 3, MAT.gun);
+    c.box(0, 37, 0, 22, 3, 22, a);
+    // Sandbag course along the front.
+    for (const dz of [-20, -7, 7, 20]) c.box(24, 4, dz, 12, 9, 11, MAT.concreteDark);
+  },
   turret: (c, a) => {
     c.box(0, 0, 0, 52, 9, 52, MAT.concreteDark);
     c.prismXZ(Cameo.ngon(0, 0, 21, 8, 0.4), 9, 24, MAT.concrete);
@@ -395,6 +469,36 @@ const BUILDING_CAMEOS: Record<BuildingType, (c: Cameo, accent: Rgb) => void> = {
     c.prismXY([[10, 62], [18, 68], [22, 62], [18, 57]], -13, -7, MAT.hot);
     c.prismXY([[10, 62], [18, 68], [22, 62], [18, 57]], 7, 13, MAT.hot);
     c.box(-22, 10, 20, 14, 12, 14, MAT.hullDark);
+  },
+  laser: (c, a) => {
+    c.box(0, 0, 0, 54, 9, 54, MAT.concreteDark);
+    c.box(0, 9, 0, 36, 16, 36, MAT.concrete);
+    c.box(0, 25, 0, 30, 4, 30, a);
+    // Tall emitter mast with a lit lens at the head.
+    c.prismXY([[-9, 29], [9, 29], [6, 70], [-6, 70]], -9, 9, MAT.hull);
+    c.prismXZ(Cameo.ngon(0, 0, 11, 8), 70, 78, MAT.hullDark);
+    c.prismXZ(Cameo.ngon(0, 0, 7, 8), 78, 82, MAT.energy, true);
+    // Capacitor drums flanking the base.
+    c.prismXZ(Cameo.ngon(-20, -18, 8, 8), 9, 34, MAT.hullDark);
+    c.prismXZ(Cameo.ngon(-20, 18, 8, 8), 9, 34, MAT.hullDark);
+    c.box(-20, 34, -18, 12, 3, 12, MAT.energy, true);
+    c.box(-20, 34, 18, 12, 3, 12, MAT.energy, true);
+  },
+  repair: (c, a) => {
+    c.box(0, 0, 0, 70, 7, 70, MAT.concreteDark);
+    // Two side bays with a clear drive-through, under a gantry beam.
+    c.box(0, 7, -24, 52, 26, 20, MAT.concrete);
+    c.box(0, 7, 24, 52, 26, 20, MAT.concrete);
+    c.box(0, 33, -24, 56, 5, 24, MAT.roof);
+    c.box(0, 33, 24, 56, 5, 24, MAT.roof);
+    c.box(0, 38, -24, 34, 3, 16, a);
+    c.box(0, 38, 24, 34, 3, 16, a);
+    c.box(0, 40, 0, 12, 6, 62, MAT.hullDark);
+    // The crane trolley, hanging over the hardstand.
+    c.box(0, 30, 0, 14, 8, 14, MAT.hullDark);
+    c.box(0, 24, 0, 4, 8, 4, MAT.hullDark);
+    c.box(0, 20, 0, 10, 5, 8, MAT.energy, true);
+    c.box(26, 4, 0, 18, 2, 30, MAT.warn);
   },
   radar: (c, a) => {
     c.box(0, 0, 0, 62, 8, 62, MAT.concreteDark);
@@ -425,10 +529,15 @@ const PRESENCE: Partial<Record<string, number>> = {
   rifleman: 0.74,
   rocketeer: 0.76,
   engineer: 0.76,
+  sniper: 0.78,
+  flamer: 0.76,
   scout: 0.9,
+  apc: 0.92,
   aa: 0.94,
+  mlrs: 0.94,
   tank: 0.96,
   artillery: 0.96,
+  mammoth: 1,
   harvester: 1,
 };
 
@@ -469,7 +578,7 @@ export type GlyphId =
   | 'structures' | 'infantry' | 'vehicles' | 'lock' | 'cancel' | 'queue'
   | 'credits' | 'power' | 'time' | 'units' | 'kills' | 'losses'
   | 'insufficientFunds' | 'lowPower' | 'baseUnderAttack' | 'unitLost'
-  | 'buildingComplete' | 'unitReady' | 'newTech' | 'harvesterLost'
+  | 'buildingComplete' | 'unitReady' | 'newTech' | 'harvesterLost' | 'cannotBuild'
   | 'shield' | 'target' | 'chevron' | 'pause' | 'menu' | 'gear';
 
 type Path = Array<Array<[number, number]>>;
@@ -558,6 +667,13 @@ const GLYPHS: Record<GlyphId, Path> = {
   ],
   newTech: [
     [[50, 6], [62, 38], [94, 50], [62, 62], [50, 94], [38, 62], [6, 50], [38, 38]],
+  ],
+  cannotBuild: [
+    [[16, 22], [84, 22], [84, 34], [16, 34]],
+    [[16, 44], [50, 44], [50, 56], [16, 56]],
+    [[16, 66], [50, 66], [50, 78], [16, 78]],
+    [[60, 44], [70, 34], [92, 56], [82, 66]],
+    [[82, 34], [92, 44], [70, 66], [60, 56]],
   ],
   harvesterLost: [
     [[12, 62], [88, 62], [88, 78], [12, 78]],

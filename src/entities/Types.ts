@@ -13,8 +13,13 @@ export type UnitType =
   | 'rifleman'      // basic infantry
   | 'rocketeer'     // anti-armour infantry
   | 'engineer'      // capture / repair
+  | 'sniper'        // long-range infantry killer
+  | 'flamer'        // short-range infantry / structure burner
   | 'scout'         // fast recon buggy
+  | 'apc'           // fast armoured gun carrier
+  | 'mlrs'          // wheeled rocket artillery
   | 'tank'          // main battle tank
+  | 'mammoth'       // heavy assault tank
   | 'artillery'     // long range siege
   | 'aa'            // anti-air vehicle
   | 'harvester';    // resource collection
@@ -25,8 +30,11 @@ export type BuildingType =
   | 'refinery'      // resource processing
   | 'barracks'      // infantry production
   | 'factory'       // vehicle production
+  | 'pillbox'       // cheap anti-infantry emplacement
   | 'turret'        // base defence
   | 'sam'           // anti-air defence
+  | 'laser'         // heavy late-game defence
+  | 'repair'        // repairs friendly units nearby
   | 'radar'         // vision + minimap
   | 'lab';          // tech unlock
 
