@@ -1,5 +1,5 @@
 import { RESOURCE_FIELDS } from '@/world/Heightfield';
-import { makeRng } from '@/util/Noise';
+import { clamp, makeRng } from '@/util/Noise';
 import type { BuildingType, UnitType } from '@/entities/Types';
 import {
   BUILDING_ID,
@@ -55,8 +55,16 @@ export const DEFAULT_CONFIG: CommanderConfig = {
   maxStructures: 26,
 };
 
-/** Combat roster in the order the commander considers it. */
-const COMBAT_TYPES: UnitType[] = ['rifleman', 'rocketeer', 'scout', 'aa', 'tank', 'artillery'];
+/**
+ * Combat roster the commander scores each cycle. Everything with a weapon is in
+ * here — `pickCombatUnit` already gates on tech and prices each candidate
+ * against the observed enemy armour mix, so adding a unit to this list is all
+ * that is needed for the AI to field it once it has the buildings for it.
+ */
+const COMBAT_TYPES: UnitType[] = [
+  'rifleman', 'rocketeer', 'flamer', 'sniper',
+  'scout', 'apc', 'aa', 'tank', 'mlrs', 'artillery', 'mammoth',
+];
 
 export class Commander {
   enabled = true;
@@ -251,6 +259,10 @@ export class Commander {
     if (net < 25) return BUILDING_ID.power;
     if (have('refinery') < 1) return BUILDING_ID.refinery;
     if (have('barracks') < 1) return BUILDING_ID.barracks;
+    // Pillboxes go up before the war factory: they are five seconds and 260
+    // credits, which is the only defence affordable during the window when an
+    // early infantry push actually threatens the base.
+    if (have('pillbox') < 2) return BUILDING_ID.pillbox;
     if (have('factory') < 1) return BUILDING_ID.factory;
     if (have('refinery') < 2) return BUILDING_ID.refinery;
     if (have('turret') < 2) return BUILDING_ID.turret;
@@ -258,12 +270,17 @@ export class Commander {
     if (have('lab') < 1) return BUILDING_ID.lab;
     if (have('refinery') < 3 && this.unservedField() >= 0) return BUILDING_ID.refinery;
     if (have('sam') < 1) return BUILDING_ID.sam;
+    // One bay pays for itself the first time a damaged push comes home.
+    if (have('repair') < 1) return BUILDING_ID.repair;
     if (have('factory') < 2 && rich) return BUILDING_ID.factory;
     if (have('turret') < 4) return BUILDING_ID.turret;
     if (have('barracks') < 2 && rich) return BUILDING_ID.barracks;
     if (net < 70) return BUILDING_ID.power;
     if (have('sam') < 2) return BUILDING_ID.sam;
+    // The laser tower draws 45 power on its own, so it waits for headroom.
+    if (rich && net > 60 && have('laser') < 1) return BUILDING_ID.laser;
     if (rich && have('turret') < 6) return BUILDING_ID.turret;
+    if (rich && net > 80 && have('laser') < 2) return BUILDING_ID.laser;
     return -1;
   }
 
@@ -284,7 +301,12 @@ export class Commander {
     const fx = toFoeX / len;
     const fz = toFoeZ / len;
 
-    if (typeId === BUILDING_ID.turret || typeId === BUILDING_ID.sam) {
+    if (
+      typeId === BUILDING_ID.turret ||
+      typeId === BUILDING_ID.sam ||
+      typeId === BUILDING_ID.pillbox ||
+      typeId === BUILDING_ID.laser
+    ) {
       // Ring the approach: alternate sides so defences spread across the front.
       const side = this.waveCount % 2 === 0 ? 1 : -1;
       const spread = 26 + this.rng() * 26;
@@ -439,9 +461,17 @@ export class Commander {
       const dps = (w.damage * Math.max(1, w.burst ?? 1)) / Math.max(0.25, w.cooldown);
       let eff = 0;
       for (let a = 0; a < 4; a++) eff += this.enemyShare[a] * WEAPON_VS[wid][a];
-      // Durability matters as much as output: a glass cannon trades badly.
-      const toughness = 0.55 + stats.hp / 700;
-      let score = (dps * eff * toughness) / stats.cost;
+      // Durability matters as much as output: a glass cannon trades badly. The
+      // cap matters — unbounded, a 1500 hp assault tank scores nearly twice a
+      // battle tank on this term alone and the commander stops building
+      // anything else.
+      const toughness = 0.55 + Math.min(stats.hp, 900) / 700;
+      // Reach. Paper DPS ignores the fact that a 21-unit weapon has to cross
+      // everyone else's engagement envelope to land any of it, so a flamethrower
+      // priced purely on damage-per-credit out-scores a tank three to one and
+      // the whole army ends up unable to answer armour at range.
+      const reach = clamp(w.range / 46, 0.45, 1.25);
+      let score = (dps * eff * toughness * reach) / stats.cost;
       const share = state.units[id] / myTotal;
       score /= 1 + share * 2.4;
       score *= 0.86 + 0.28 * this.rng();

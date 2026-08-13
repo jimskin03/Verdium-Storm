@@ -163,8 +163,10 @@ function emitCards(
     const shade = 0.55 + 0.45 * (1 - depth);
     const warm = 0.86 + rng() * 0.34;
     color.copy(tint).multiplyScalar(shade * warm);
-    // Sun-facing top of the canopy bleaches slightly.
-    color.lerp(new THREE.Color(0.72, 0.78, 0.42), clamp((s.pos.y - height * 0.55) / height, 0, 1) * 0.22);
+    // Sun-facing top of the canopy bleaches slightly. Kept small: at 0.22 into
+    // a straw-coloured target the crown of every broadleaf went pale yellow and
+    // the forest read as dead.
+    color.lerp(new THREE.Color(0.58, 0.66, 0.34), clamp((s.pos.y - height * 0.55) / height, 0, 1) * 0.12);
 
     const cell = cells[(rng() * cells.length) | 0];
     const size = s.size * (0.78 + rng() * 0.5);
@@ -204,14 +206,14 @@ const CONFIG: Record<TreeKind, SpeciesConfig> = {
     height: 17,
     radius: 7.6,
     bark: { tint: new THREE.Color(1.208, 1.013, 0.779), crest: 0.257, crevice: 0.063, banding: 0 },
-    leafTint: new THREE.Color(0.74, 0.82, 0.52),
+    leafTint: new THREE.Color(0.54, 0.7, 0.36),
     cells: [],
   },
   birch: {
     height: 19,
     radius: 4.4,
     bark: { tint: new THREE.Color(1.024, 1.024, 0.952), crest: 0.840, crevice: 0.407, banding: 1 },
-    leafTint: new THREE.Color(0.82, 0.88, 0.56),
+    leafTint: new THREE.Color(0.63, 0.78, 0.42),
     cells: [],
   },
   dead: {
@@ -222,6 +224,77 @@ const CONFIG: Record<TreeKind, SpeciesConfig> = {
     cells: [],
   },
 };
+
+/**
+ * How far below the origin the root system reaches. Trees are planted a little
+ * under the surface, and the terrain is drawn from a bilinear field the
+ * placement pass can only match to within a few centimetres, so a trunk that
+ * simply stops at y=0 shows a hard horizontal cut wherever the two disagree —
+ * which reads as a tree hovering over the ground even when it is not.
+ */
+const ROOT_DEPTH = 1.9;
+
+/**
+ * Root flare and surface buttresses.
+ *
+ * A trunk of constant diameter meeting flat ground is the single strongest
+ * "pasted on" tell in an outdoor scene: real trunks widen into the soil and
+ * throw roots outward before they disappear. The flare is a short tube that
+ * swells from the trunk radius to roughly twice it as it descends past the
+ * origin; the buttresses are stubby limbs that dive from just above ground
+ * level to just below it, so they break the silhouette of the contact line
+ * without needing any contact geometry on the terrain itself.
+ */
+function addRootSystem(
+  b: GeoBuilder,
+  trunkRadius: number,
+  colorAt: (yAt: (t: number) => number) => (t: number, angle: number, ridge: number) => THREE.Color,
+  radial: number,
+  buttresses: number,
+  spread: number,
+  rng: () => number,
+): void {
+  const flarePoints = [
+    new THREE.Vector3(0, -ROOT_DEPTH, 0),
+    new THREE.Vector3(0, -ROOT_DEPTH * 0.45, 0),
+    new THREE.Vector3(0, 0.35, 0),
+    new THREE.Vector3(0, trunkRadius * 2.6, 0),
+  ];
+  const flareRadii = [
+    trunkRadius * 1.5,
+    trunkRadius * 2.05,
+    trunkRadius * 1.42,
+    trunkRadius * 1.02,
+  ];
+  const yFlare = (t: number): number => flarePoints[Math.round(t * (flarePoints.length - 1))].y;
+  addTube(
+    b,
+    flarePoints,
+    flareRadii,
+    radial,
+    colorAt(yFlare),
+    () => 0,
+    [1, 0.14],
+    (t, a) => (Math.sin(a * 5.0 + t * 3.0) * 0.5 + Math.sin(a * 9.0 - t * 2.0) * 0.3) * 0.09,
+    false,
+  );
+
+  for (let i = 0; i < buttresses; i++) {
+    const a = (i / buttresses) * Math.PI * 2 + rng() * 0.8;
+    const reach = trunkRadius * spread * (0.85 + rng() * 0.5);
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const pts = [
+      new THREE.Vector3(ca * trunkRadius * 0.6, trunkRadius * 1.1, sa * trunkRadius * 0.6),
+      new THREE.Vector3(ca * reach * 0.55, -0.05, sa * reach * 0.55),
+      new THREE.Vector3(ca * reach, -ROOT_DEPTH * 0.7, sa * reach),
+    ];
+    const radii = [trunkRadius * 0.5, trunkRadius * 0.34, trunkRadius * 0.16];
+    const yRoot = (t: number): number => pts[Math.round(t * (pts.length - 1))].y;
+    addTube(b, pts, radii, Math.max(3, radial - 2), colorAt(yRoot), () => 0, [1, 0.14],
+      (t, ang) => Math.sin(ang * 4.0 + t * 5.0) * 0.07, false);
+  }
+}
 
 /** Grows one tree of the given kind at the given level of detail. */
 export function buildTree(kind: TreeKind, atlas: LeafAtlas, lod: number, seed: number): BuiltTree {
@@ -269,8 +342,9 @@ export function buildTree(kind: TreeKind, atlas: LeafAtlas, lod: number, seed: n
 
   if (kind === 'pine') {
     const trunkSegs = simple ? 5 : 9;
-    const trunk = growLimb(new THREE.Vector3(0, -0.6, 0), new THREE.Vector3(0.02, 1, 0.01), H + 0.6, trunkSegs, 0, 0.03, rng);
+    const trunk = growLimb(new THREE.Vector3(0, -ROOT_DEPTH, 0), new THREE.Vector3(0.02, 1, 0.01), H + ROOT_DEPTH, trunkSegs, 0, 0.03, rng);
     tube(trunk.points, 0.52, 0.05, simple ? 5 : 7, 0, 0.05);
+    addRootSystem(bark, 0.52, colorOf, simple ? 5 : 7, simple ? 3 : 5, 2.6, rng);
 
     const whorls = simple ? 7 : 12;
     for (let w = 0; w < whorls; w++) {
@@ -308,8 +382,10 @@ export function buildTree(kind: TreeKind, atlas: LeafAtlas, lod: number, seed: n
     }
   } else if (kind === 'birch') {
     const trunkSegs = simple ? 5 : 9;
-    const trunk = growLimb(new THREE.Vector3(0, -0.6, 0), new THREE.Vector3(0.05, 1, 0.03), H + 0.6, trunkSegs, 0, 0.055, rng);
+    const trunk = growLimb(new THREE.Vector3(0, -ROOT_DEPTH, 0), new THREE.Vector3(0.05, 1, 0.03), H + ROOT_DEPTH, trunkSegs, 0, 0.055, rng);
     tube(trunk.points, 0.40, 0.06, simple ? 5 : 8, 0, 0.028);
+    // Birch is a slender, shallow-rooted pioneer: a modest collar, no buttresses.
+    addRootSystem(bark, 0.40, colorOf, simple ? 5 : 8, simple ? 2 : 3, 1.9, rng);
 
     const branches = simple ? 8 : 15;
     for (let i = 0; i < branches; i++) {
@@ -337,15 +413,18 @@ export function buildTree(kind: TreeKind, atlas: LeafAtlas, lod: number, seed: n
     const trunkTop = isDead ? 0.5 : 0.44;
     const trunkSegs = simple ? 4 : 6;
     const trunk = growLimb(
-      new THREE.Vector3(0, -0.7, 0),
+      new THREE.Vector3(0, -ROOT_DEPTH, 0),
       new THREE.Vector3(rng() * 0.14 - 0.07, 1, rng() * 0.14 - 0.07),
-      H * trunkTop + 0.7,
+      H * trunkTop + ROOT_DEPTH,
       trunkSegs,
       0,
       0.05,
       rng,
     );
-    tube(trunk.points, isDead ? 0.72 : 0.92, isDead ? 0.42 : 0.56, simple ? 6 : 9, 0, 0.075);
+    const trunkR = isDead ? 0.72 : 0.92;
+    tube(trunk.points, trunkR, isDead ? 0.42 : 0.56, simple ? 6 : 9, 0, 0.075);
+    // Hardwoods carry the heaviest flare, and a dead one still has its stump.
+    addRootSystem(bark, trunkR, colorOf, simple ? 6 : 9, simple ? 4 : 6, 3.1, rng);
 
     const top = trunk.points[trunk.points.length - 1];
     const primaries = simple ? 3 : 4;

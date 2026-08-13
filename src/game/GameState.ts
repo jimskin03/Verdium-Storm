@@ -42,7 +42,8 @@ export interface SelectionSummary {
 
 export type AlertKind =
   | 'insufficientFunds' | 'lowPower' | 'baseUnderAttack' | 'unitLost'
-  | 'buildingComplete' | 'unitReady' | 'newTech' | 'harvesterLost';
+  | 'buildingComplete' | 'unitReady' | 'newTech' | 'harvesterLost'
+  | 'cannotBuild';
 
 export interface Alert {
   kind: AlertKind;

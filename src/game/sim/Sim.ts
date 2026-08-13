@@ -70,6 +70,10 @@ const MINE_RATE = 95;
 const UNLOAD_RATE = 420;
 const MAX_ALERTS = 8;
 
+/** Repair Bay coverage, and the fraction of max HP it restores per second. */
+const REPAIR_RADIUS = 30;
+const REPAIR_RATE = 0.085;
+
 export interface SimOptions {
   playerTeam: Team;
   playerFaction: Faction;
@@ -337,9 +341,12 @@ export class Sim {
       ['refinery', 26, -18],
       ['barracks', 2, 30],
       ['factory', 30, 16],
+      ['repair', -4, 54],
       ['radar', -8, -32],
       ['turret', 40, 42],
       ['turret', 44, -34],
+      ['pillbox', 54, 8],
+      ['pillbox', 16, 56],
       ['sam', -38, 32],
     ];
     for (const [type, ox, oz] of layout) {
@@ -350,7 +357,8 @@ export class Sim {
     }
 
     const roster: Array<[UnitType, number]> = [
-      ['harvester', 3], ['rifleman', 5], ['rocketeer', 3], ['tank', 3], ['aa', 2], ['scout', 1],
+      ['harvester', 3], ['rifleman', 5], ['rocketeer', 3], ['flamer', 2], ['sniper', 1],
+      ['tank', 3], ['mammoth', 1], ['apc', 2], ['mlrs', 1], ['aa', 2], ['scout', 1],
     ];
     let ring = 0;
     for (const [type, count] of roster) {
@@ -367,7 +375,10 @@ export class Sim {
   }
 
   private seedGroup(team: number, cx: number, cz: number, s: number): void {
-    const roster: Array<[UnitType, number]> = [['tank', 4], ['rifleman', 5], ['rocketeer', 3], ['aa', 1]];
+    const roster: Array<[UnitType, number]> = [
+      ['tank', 3], ['mammoth', 1], ['rifleman', 5], ['rocketeer', 3], ['flamer', 2],
+      ['apc', 1], ['mlrs', 1], ['aa', 1],
+    ];
     let n = 0;
     const slots: number[] = [];
     for (const [type, count] of roster) {
@@ -1214,8 +1225,12 @@ export class Sim {
     const projKind = PROJ_KIND[weaponId];
     if (projKind === PROJ_HITSCAN) {
       if (!this.refPos(target, scratchA)) return;
-      if (fx) fx.tracer(scratchB, scratchA, 0xffdca0, 900);
-      else this.vfx.beam(scratchB.x, scratchB.y, scratchB.z, scratchA.x, scratchA.y, scratchA.z, 0.14);
+      // A laser is a lance, not a tracer: fatter, slower to fade, and a colour
+      // nothing else in the game uses so its source is never in doubt.
+      const isLaser = weapon.weaponClass === 'laser';
+      if (fx) fx.tracer(scratchB, scratchA, isLaser ? 0xff5a3c : 0xffdca0, isLaser ? 2600 : 900);
+      else this.vfx.beam(scratchB.x, scratchB.y, scratchB.z, scratchA.x, scratchA.y, scratchA.z,
+        isLaser ? 0.42 : 0.14);
       this.damageRef(target, weapon.damage, weaponId, team, shooter);
       if (weapon.splash > 0) {
         this.splashDamage(scratchA.x, scratchA.y, scratchA.z, weapon.splash, weapon.damage * 0.5, weaponId, team, target);
@@ -1570,9 +1585,41 @@ export class Sim {
 
       if (stats.produces) this.tickProduction(i, dt);
       if (BUILDING_WEAPON[typeId] >= 0) this.tickTurret(i, dt);
+      if (typeId === BUILDING_ID.repair) this.tickRepairBay(i, dt);
     }
 
     this.tickConstruction(dt);
+  }
+
+  /**
+   * Repair Bay: mends friendly units parked inside its apron.
+   *
+   * Deliberately a field rather than a docking order — an RTS that makes you
+   * micro damaged tanks into a specific tile is an RTS whose repair building
+   * goes unused. Standing near it is the whole interaction, which also gives
+   * the bay a defensive purpose: a fight next to one is a fight you win.
+   */
+  private tickRepairBay(slot: number, dt: number): void {
+    const b = this.buildings;
+    const u = this.units;
+    const team = b.team[slot];
+    const bx = b.px[slot];
+    const bz = b.pz[slot];
+    const r2 = REPAIR_RADIUS * REPAIR_RADIUS;
+    let working = false;
+    for (let n = 0; n < u.liveCount; n++) {
+      const i = u.live[n];
+      if (u.team[i] !== team) continue;
+      if (u.hp[i] >= u.maxHp[i]) continue;
+      const dx = u.px[i] - bx;
+      const dz = u.pz[i] - bz;
+      if (dx * dx + dz * dz > r2) continue;
+      u.hp[i] = Math.min(u.maxHp[i], u.hp[i] + u.maxHp[i] * REPAIR_RATE * dt);
+      this.refreshDamageState(u.ref(i), i);
+      working = true;
+    }
+    b.active[slot] = working ? 1 : 0;
+    b.rigs[slot]?.setActive?.(working);
   }
 
   private tickProduction(i: number, dt: number): void {

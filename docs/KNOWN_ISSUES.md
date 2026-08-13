@@ -75,6 +75,20 @@ run survives it; only this preset is affected.
 
 ## Fixed
 
+- **Trees appeared to float above the ground.** Not a placement bug, and worth
+  recording because the obvious diagnosis is wrong. Measured against the baked
+  near field the terrain shader actually samples, tree origins sit within 0.1 of
+  their intended 0.35 below the surface, and CDLOD tessellation sag is at most
+  0.31 world units even at the coarsest node a tree is drawn at. The cause was
+  geometry: a constant-diameter trunk tube ending at y≈-0.6 meets flat-shaded
+  ground along a hard horizontal line, which the eye reads as a cut-off object
+  hovering. Trunks now start at `ROOT_DEPTH` (-1.9) and carry a flare plus
+  surface buttresses (`addRootSystem` in `src/shaders/foliage/Trees.ts`).
+- **Newly placed structures seemed to appear only where you clicked.** The
+  placement ghost read `dragX || pointerX`, and `pointerX` was never assigned —
+  so the preview only moved on mouse-down and gave no feedback about where the
+  building would land or whether the site was legal. `PlayerController` now
+  tracks the cursor on every `pointermove`.
 - **All near foliage rendered black.** Every tree and ground-cover material set
   `vertexColors: true`, but no geometry builder writes a `color` attribute, so
   three's `color_vertex` chunk multiplied by an absent attribute. Removed the

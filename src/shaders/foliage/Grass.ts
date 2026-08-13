@@ -142,10 +142,12 @@ export class GrassLayer {
     this.uniforms.uRadius.value = radius;
     this.uniforms.uTile.value = radius * 2.45;
     // Blades widen slightly as the ring grows so they never fall below a pixel
-    // and shimmer; height grows less so the field does not look coarse.
+    // and shimmer; height grows less so the field does not look coarse. Kept
+    // shallow — at the old 0.42 slope a zoomed-out blade was wider than it was
+    // tall, which is the shape of a leaf, not a blade of grass.
     (this.uniforms.uBlade.value as THREE.Vector2).set(
-      this.opts.bladeWidth * (0.85 + scale * 0.42),
-      this.opts.bladeHeight * (0.9 + scale * 0.12),
+      this.opts.bladeWidth * (0.92 + scale * 0.2),
+      this.opts.bladeHeight * (0.88 + scale * 0.16),
     );
     this.uniforms.uGlobalFade.value = 1 - THREE.MathUtils.smoothstep(viewDistance, 300, 460);
   }

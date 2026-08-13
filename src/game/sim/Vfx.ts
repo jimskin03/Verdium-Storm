@@ -41,6 +41,88 @@ function radialTexture(sharpness: number): THREE.DataTexture {
   return tex;
 }
 
+/**
+ * One Verdium deposit.
+ *
+ * A single cone reads as a party hat, not a mineral: real crystal grows in
+ * clusters of unequal shards leaning off a common seam, over a spoil skirt of
+ * broken fragments. Shards are merged into one geometry here so the whole map's
+ * deposits stay a single instanced draw call.
+ */
+function buildCrystalCluster(): THREE.BufferGeometry {
+  const rng = makeRng(0x0cea51);
+  const parts: THREE.BufferGeometry[] = [];
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const axis = new THREE.Vector3();
+
+  const shard = (r: number, h: number, sides: number, x: number, z: number, tilt: number, yaw: number): void => {
+    const g = new THREE.ConeGeometry(r, h, sides);
+    g.translate(0, h * 0.5, 0);
+    axis.set(Math.cos(yaw), 0, Math.sin(yaw)).normalize();
+    q.setFromAxisAngle(axis, tilt);
+    m.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(1, 1, 1));
+    g.applyMatrix4(m);
+    parts.push(g);
+  };
+
+  // A tall leader with two shoulders, then a scatter of stubs around the base.
+  shard(0.5, 3.1, 5, 0, 0, 0.07, rng() * 6.28);
+  shard(0.34, 2.0, 5, 0.52, 0.18, 0.42, 1.9);
+  shard(0.3, 1.55, 5, -0.4, -0.44, 0.5, 4.4);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + rng() * 0.7;
+    const d = 0.55 + rng() * 0.5;
+    shard(0.14 + rng() * 0.1, 0.5 + rng() * 0.7, 4,
+      Math.cos(a) * d, Math.sin(a) * d, 0.5 + rng() * 0.6, a + Math.PI * 0.5);
+  }
+  // Spoil skirt: a low, wide, many-sided cone that buries every shard's foot.
+  const skirt = new THREE.ConeGeometry(1.15, 0.7, 9);
+  skirt.translate(0, 0.05, 0);
+  parts.push(skirt);
+
+  return mergeGeometries(parts);
+}
+
+/**
+ * Minimal position/normal merge. The addon utility would do this too, but this
+ * stream generates every vertex it draws and does not otherwise pull in
+ * three's examples.
+ */
+function mergeGeometries(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  let vertexCount = 0;
+  let indexCount = 0;
+  for (const g of parts) {
+    vertexCount += g.getAttribute('position').count;
+    indexCount += g.getIndex()?.count ?? g.getAttribute('position').count;
+  }
+  const pos = new Float32Array(vertexCount * 3);
+  const nrm = new Float32Array(vertexCount * 3);
+  const idx = new Uint16Array(indexCount);
+  let vo = 0;
+  let io = 0;
+  for (const g of parts) {
+    const p = g.getAttribute('position') as THREE.BufferAttribute;
+    const n = g.getAttribute('normal') as THREE.BufferAttribute;
+    pos.set(p.array as Float32Array, vo * 3);
+    nrm.set(n.array as Float32Array, vo * 3);
+    const index = g.getIndex();
+    if (index) {
+      for (let i = 0; i < index.count; i++) idx[io++] = vo + index.getX(i);
+    } else {
+      for (let i = 0; i < p.count; i++) idx[io++] = vo + i;
+    }
+    vo += p.count;
+    g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  out.computeBoundingSphere();
+  return out;
+}
+
 interface PuffPool {
   mesh: THREE.InstancedMesh;
   x: Float32Array; y: Float32Array; z: Float32Array;
@@ -134,13 +216,15 @@ export class SimVfx {
     this.ringMesh.count = 0;
     this.root.add(this.ringMesh);
 
+    // Emissive is kept low and the base colour dark: at 0.55 the deposits read
+    // as white paper cones under a noon key rather than as green crystal, since
+    // the emissive term survives tone mapping that the albedo does not.
     const crystalMat = new THREE.MeshStandardMaterial({
-      color: 0x1c5f4a, emissive: new THREE.Color(0x35d99a), emissiveIntensity: 0.55,
-      roughness: 0.28, metalness: 0.1, flatShading: true,
+      color: 0x123f33, emissive: new THREE.Color(0x2fbf85), emissiveIntensity: 0.22,
+      roughness: 0.18, metalness: 0.05, flatShading: true,
     });
     this.materials.push(crystalMat);
-    const crystalGeo = new THREE.ConeGeometry(0.62, 2.6, 5);
-    crystalGeo.translate(0, 1.3, 0);
+    const crystalGeo = buildCrystalCluster();
     const { mesh, fields, base, count } = this.buildCrystals(crystalGeo, crystalMat);
     this.crystalMesh = mesh;
     this.crystalField = fields;
@@ -178,7 +262,7 @@ export class SimVfx {
     mat: THREE.Material,
   ): { mesh: THREE.InstancedMesh; fields: Int32Array; base: Float32Array; count: number } {
     const rng = makeRng(0x1cea51);
-    const perField = 34;
+    const perField = 46;
     const total = RESOURCE_FIELDS.length * perField;
     const mesh = new THREE.InstancedMesh(geo, mat, total);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -199,7 +283,10 @@ export class SimVfx {
         fields[n] = f;
         const o = n * 5;
         base[o] = x;
-        base[o + 1] = heightAt(x, z) - 0.3;
+        // Set into the ground rather than balanced on it: the cluster carries
+        // its own spoil skirt, so burying the joint is what makes a deposit
+        // look like it grew there instead of being dropped on the grass.
+        base[o + 1] = heightAt(x, z) - 0.55;
         base[o + 2] = z;
         base[o + 3] = rng() * Math.PI * 2;
         base[o + 4] = 0.8 + rng() * 1.5;

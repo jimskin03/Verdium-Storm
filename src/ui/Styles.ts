@@ -503,6 +503,7 @@ function css(): string {
 .vs-alert.k-buildingComplete { --k: var(--ok); }
 .vs-alert.k-unitReady { --k: var(--ok); }
 .vs-alert.k-newTech { --k: var(--cool); }
+.vs-alert.k-cannotBuild { --k: var(--power-warn); }
 .vs-alert { --k: var(--accent); }
 
 /* base-under-attack screen flash */

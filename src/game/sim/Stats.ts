@@ -28,11 +28,13 @@ import type {
  */
 
 export const UNIT_TYPES: readonly UnitType[] = [
-  'rifleman', 'rocketeer', 'engineer', 'scout', 'tank', 'artillery', 'aa', 'harvester',
+  'rifleman', 'rocketeer', 'engineer', 'sniper', 'flamer',
+  'scout', 'apc', 'mlrs', 'tank', 'mammoth', 'artillery', 'aa', 'harvester',
 ];
 
 export const BUILDING_TYPES: readonly BuildingType[] = [
-  'hq', 'power', 'refinery', 'barracks', 'factory', 'turret', 'sam', 'radar', 'lab',
+  'hq', 'power', 'refinery', 'barracks', 'factory',
+  'pillbox', 'turret', 'sam', 'laser', 'repair', 'radar', 'lab',
 ];
 
 export const ARMOUR_CLASSES: readonly ArmourClass[] = ['flesh', 'light', 'heavy', 'structure'];
@@ -67,6 +69,33 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
     armour: 'flesh', locomotion: 'infantry', speed: 7.8, turnRate: 6.0, radius: 1.5, sight: 74,
     requires: 'barracks',
   },
+  sniper: {
+    type: 'sniper', label: 'Sniper', cost: 500, buildTime: 10, hp: 90,
+    armour: 'flesh', locomotion: 'infantry', speed: 6.6, turnRate: 5.0, radius: 1.5, sight: 168,
+    requires: 'radar',
+    weapon: {
+      weaponClass: 'bullet', damage: 130, range: 86, cooldown: 3.4, burst: 1,
+      projectileSpeed: 0, splash: 0, canTargetAir: false, canTargetGround: true,
+      // Deletes infantry outright and is useless against anything plated. Its
+      // 86-unit reach outranges every other direct-fire weapon in the game
+      // except the siege gun, so the counter is to close, not to trade.
+      vs: vs(2.2, 0.28, 0.08, 0.1),
+    },
+  },
+  flamer: {
+    type: 'flamer', label: 'Flame Trooper', cost: 340, buildTime: 7.5, hp: 165,
+    armour: 'flesh', locomotion: 'infantry', speed: 7.2, turnRate: 6.2, radius: 1.5, sight: 82,
+    requires: 'barracks',
+    weapon: {
+      weaponClass: 'bullet', damage: 22, range: 21, cooldown: 1.05, burst: 2, burstDelay: 0.18,
+      projectileSpeed: 0, splash: 5.5, canTargetAir: false, canTargetGround: true,
+      // The answer to massed infantry and to a turtled base, at knife range.
+      // Damage is held below the battle tank's sustained output on purpose: with
+      // splash this wide, anything higher makes closing the 21 units a strictly
+      // better play than shooting from anywhere else on the field.
+      vs: vs(1.5, 0.7, 0.35, 1.5),
+    },
+  },
   scout: {
     type: 'scout', label: 'Scout Buggy', cost: 360, buildTime: 8, hp: 210,
     armour: 'light', locomotion: 'wheeled', speed: 23, turnRate: 3.1, radius: 2.3, sight: 152,
@@ -77,6 +106,28 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
       vs: vs(1.15, 0.6, 0.14, 0.18),
     },
   },
+  apc: {
+    type: 'apc', label: 'APC', cost: 480, buildTime: 9, hp: 420,
+    armour: 'light', locomotion: 'wheeled', speed: 18, turnRate: 2.8, radius: 2.6, sight: 118,
+    requires: 'factory',
+    weapon: {
+      weaponClass: 'bullet', damage: 16, range: 38, cooldown: 0.5, burst: 2, burstDelay: 0.09,
+      projectileSpeed: 0, splash: 0, canTargetAir: true, canTargetGround: true,
+      vs: vs(1.25, 0.7, 0.18, 0.22),
+    },
+  },
+  mlrs: {
+    type: 'mlrs', label: 'Rocket Truck', cost: 780, buildTime: 12, hp: 260,
+    armour: 'light', locomotion: 'wheeled', speed: 15, turnRate: 2.2, radius: 2.8, sight: 126,
+    requires: 'radar',
+    weapon: {
+      weaponClass: 'rocket', damage: 44, range: 84, cooldown: 5.6, burst: 6, burstDelay: 0.14,
+      projectileSpeed: 74, splash: 6.5, canTargetAir: false, canTargetGround: true,
+      // A salvo unit: enormous burst damage on a long reload, paper-thin, and
+      // it has to stand still long enough to fire the whole rack.
+      vs: vs(1.25, 1.15, 0.85, 1.1),
+    },
+  },
   tank: {
     type: 'tank', label: 'Battle Tank', cost: 850, buildTime: 14, hp: 640,
     armour: 'heavy', locomotion: 'tracked', speed: 11.5, turnRate: 1.45, radius: 3.3, sight: 112,
@@ -85,6 +136,18 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
       weaponClass: 'cannon', damage: 84, range: 49, cooldown: 2.7, burst: 1,
       projectileSpeed: 170, splash: 3.5, canTargetAir: false, canTargetGround: true,
       vs: vs(0.65, 1.2, 1.0, 1.15),
+    },
+  },
+  mammoth: {
+    type: 'mammoth', label: 'Mammoth Tank', cost: 1700, buildTime: 24, hp: 1500,
+    armour: 'heavy', locomotion: 'tracked', speed: 7.2, turnRate: 0.85, radius: 4.0, sight: 118,
+    requires: 'lab',
+    weapon: {
+      weaponClass: 'cannon', damage: 96, range: 54, cooldown: 3.2, burst: 2, burstDelay: 0.22,
+      projectileSpeed: 190, splash: 4.0, canTargetAir: true, canTargetGround: true,
+      // The only ground unit with no hard counter — which is why it costs two
+      // battle tanks, moves at two thirds of one, and needs the tech lab.
+      vs: vs(0.8, 1.25, 1.15, 1.3),
     },
   },
   artillery: {
@@ -130,12 +193,23 @@ export const BUILDING_STATS: Record<BuildingType, BuildingStats> = {
   barracks: {
     type: 'barracks', label: 'Barracks', cost: 500, buildTime: 10, hp: 900,
     footprint: 3, power: -15, sight: 82, requires: 'power',
-    produces: ['rifleman', 'rocketeer', 'engineer'],
+    produces: ['rifleman', 'rocketeer', 'engineer', 'flamer', 'sniper'],
   },
   factory: {
     type: 'factory', label: 'War Factory', cost: 2000, buildTime: 22, hp: 1550,
     footprint: 4, power: -30, sight: 92, requires: 'refinery',
-    produces: ['harvester', 'scout', 'aa', 'tank', 'artillery'],
+    produces: ['harvester', 'scout', 'apc', 'aa', 'tank', 'mlrs', 'artillery', 'mammoth'],
+  },
+  pillbox: {
+    type: 'pillbox', label: 'Pillbox', cost: 260, buildTime: 5, hp: 620,
+    footprint: 2, power: -4, sight: 78, requires: 'barracks',
+    weapon: {
+      weaponClass: 'bullet', damage: 18, range: 40, cooldown: 0.42, burst: 3, burstDelay: 0.08,
+      projectileSpeed: 0, splash: 0, canTargetAir: true, canTargetGround: true,
+      // Deliberately cheap and deliberately useless against armour: this is the
+      // wall a rush breaks on, not a substitute for the gun turret.
+      vs: vs(1.4, 0.6, 0.12, 0.15),
+    },
   },
   turret: {
     type: 'turret', label: 'Gun Turret', cost: 700, buildTime: 10, hp: 950,
@@ -154,6 +228,21 @@ export const BUILDING_STATS: Record<BuildingType, BuildingStats> = {
       projectileSpeed: 96, splash: 3, canTargetAir: true, canTargetGround: true,
       vs: vs(1.35, 1.0, 0.4, 0.2),
     },
+  },
+  laser: {
+    type: 'laser', label: 'Laser Tower', cost: 1400, buildTime: 15, hp: 1100,
+    footprint: 2, power: -45, sight: 116, requires: 'lab',
+    weapon: {
+      weaponClass: 'laser', damage: 210, range: 74, cooldown: 3.6, burst: 1,
+      projectileSpeed: 0, splash: 0, canTargetAir: false, canTargetGround: true,
+      // One shot, one vehicle. The 45-power draw is the real cost: a base that
+      // rings itself with these browns out and stops producing.
+      vs: vs(0.9, 1.5, 1.6, 0.7),
+    },
+  },
+  repair: {
+    type: 'repair', label: 'Repair Bay', cost: 900, buildTime: 12, hp: 980,
+    footprint: 3, power: -18, sight: 84, requires: 'factory',
   },
   radar: {
     type: 'radar', label: 'Radar Array', cost: 1000, buildTime: 14, hp: 820,

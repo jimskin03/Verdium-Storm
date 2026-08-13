@@ -814,10 +814,256 @@ function lab(c: Ctx): void {
   }
 }
 
+/* ---- pillbox ---- */
+
+/**
+ * Squat concrete emplacement. It has to be legible as *cheap* next to the gun
+ * turret — low, dug in, sandbagged and with a fixed embrasure rather than a
+ * proper rotating housing, even though the barrel bone still traverses.
+ */
+function pillbox(c: Ctx): void {
+  const { b, k, rig, def, riser, s, nod, detail } = c;
+  def.height = 4.4;
+  def.riseDepth = 4.0;
+  def.turretRate = 2.6;
+  def.recoilTravel = 0.12;
+  def.elevMin = -0.22;
+  def.elevMax = 0.5;
+
+  // Dug-in casemate on a wider skirt.
+  b.use(k.concreteDark);
+  b.prismY(nod ? (ngon(s * 0.56, 6, Math.PI / 6) as Vec2[]) : rect(s * 0.9, s * 0.9), 0.9, 0.22, 0, 0.7, 0);
+  b.use(k.concrete);
+  if (nod) {
+    b.prismY(ngon(s * 0.44, 6, Math.PI / 6) as Vec2[], 2.2, 0.32, 0, 2.0, 0);
+  } else {
+    b.prismY(trap(s * 0.72, s * 0.52, s * 0.72) as Vec2[], 2.2, 0.34, 0, 2.0, 0);
+  }
+  // Embrasure: a dark slit under a thick lintel, facing forward.
+  b.use(k.dark);
+  b.box(0, 2.5, s * 0.34, s * 0.44, 0.6, 0.3, 0.05);
+  b.use(k.concreteDark);
+  b.box(0, 3.1, s * 0.33, s * 0.56, 0.5, 0.34, 0.08);
+
+  // Sandbag course around the front, and a rear hatch.
+  if (detail > 0) {
+    b.use(k.concreteDark);
+    for (let i = 0; i < 7; i++) {
+      const a = -0.9 + (i / 6) * 1.8;
+      b.box(Math.sin(a) * s * 0.5, 1.35, Math.cos(a) * s * 0.5, 0.95, 0.5, 0.65, 0.18);
+    }
+    b.use(k.dmetal);
+    b.box(0, 1.8, -s * 0.42, 1.2, 1.6, 0.2, 0.05);
+    b.use(k.rust);
+    b.box(s * 0.34, 1.3, -s * 0.34, 0.7, 1.0, 0.7, 0.12);
+  }
+  b.use(k.team);
+  b.box(0, 1.9, s * 0.44, s * 0.28, 0.44, 0.14, 0.04);
+  b.use(k.teamLight);
+  b.box(0, 3.5, -s * 0.3, 0.34, 0.12, 0.1, 0.03);
+
+  // Traversing mount inside the embrasure.
+  const tur = rig.add('turret', riser, 0, 2.5, s * 0.2);
+  def.turret = tur;
+  b.bone(tur);
+  b.push();
+  b.move(0, 2.5, s * 0.2);
+  b.use(k.dmetal);
+  b.tube(0, 0, 0, 0.34, 0.38, 0.4, detail > 0 ? 10 : 6);
+  b.pop();
+
+  const bar = rig.add('barrel', tur, 0, 0, s * 0.16);
+  def.barrel = bar;
+  def.muzzle = [0, 0, 1.5];
+  b.bone(bar);
+  b.push();
+  b.move(0, 2.5, s * 0.36);
+  b.use(k.dmetal);
+  b.push();
+  b.rotX(Math.PI / 2);
+  b.tube(0, 0.75, 0, 0.11, 0.13, 1.5, detail > 0 ? 10 : 6);
+  b.use(k.steel);
+  b.tube(0, 1.5, 0, 0.2, 0.18, 0.24, detail > 0 ? 10 : 6);
+  b.pop();
+  b.pop();
+  b.bone(riser);
+}
+
+/* ---- laser tower ---- */
+
+/**
+ * The late-game defence. No barrel and no recoil — the whole tower is the
+ * weapon, so the "turret" bone is the mast and the emitter head glows hot
+ * between shots. Tall and thin so it reads across a base at a glance.
+ */
+function laser(c: Ctx): void {
+  const { b, k, rig, def, riser, s, nod, detail } = c;
+  def.height = 15;
+  def.riseDepth = 13;
+  def.turretRate = 1.3;
+  def.recoilTravel = 0;
+  def.elevMin = -0.3;
+  def.elevMax = 0.35;
+
+  // Heavy base with cable trunking — this thing eats power and shows it.
+  b.use(k.concreteDark);
+  b.prismY(nod ? (ngon(s * 0.52, 6, Math.PI / 6) as Vec2[]) : rect(s * 0.84, s * 0.84), 1.2, 0.24, 0, 0.9, 0);
+  b.use(k.concrete);
+  b.prismY(nod ? (ngon(s * 0.4, 6, Math.PI / 6) as Vec2[]) : rect(s * 0.66, s * 0.66), 3.2, 0.3, 0, 2.9, 0);
+  b.use(k.dmetal);
+  for (const sx of [-1, 1]) {
+    b.pipe(sx * s * 0.42, 0.9, -s * 0.3, sx * s * 0.3, 3.6, -s * 0.22, 0.24, 7);
+  }
+  b.use(k.crystal);
+  for (const sx of [-1, 1]) b.box(sx * s * 0.3, 3.0, s * 0.3, 0.44, 1.8, 0.28, 0.06);
+
+  // Capacitor drum: the tell that this is an energy weapon, not a gun.
+  b.use(k.metal);
+  b.tube(0, 5.2, -s * 0.18, s * 0.24, s * 0.24, 1.9, detail > 0 ? 14 : 8);
+  b.use(k.glow);
+  b.tube(0, 5.2, -s * 0.18, s * 0.19, s * 0.19, 2.05, detail > 0 ? 14 : 8);
+
+  b.use(k.team);
+  b.box(0, 3.2, s * 0.36, s * 0.3, 0.6, 0.16, 0.05);
+  if (detail > 0) {
+    b.use(k.steel);
+    b.railing(0, 4.6, s * 0.3, s * 0.5, 0.28, 0.85);
+    b.ladder(-s * 0.3, 1.0, s * 0.3, 3.4);
+    b.use(k.amber);
+    for (const sx of [-1, 1]) b.box(sx * s * 0.28, 4.4, -s * 0.3, 0.24, 0.24, 0.2, 0.05);
+  }
+
+  // Rotating mast plus emitter head.
+  const tur = rig.add('turret', riser, 0, 6.4, 0);
+  def.turret = tur;
+  b.bone(tur);
+  b.push();
+  b.move(0, 6.4, 0);
+  b.use(k.wall);
+  if (nod) {
+    // A raked obsidian spire — the Nod silhouette everyone recognises.
+    b.push();
+    b.move(0, 3.6, 0);
+    b.prismY(trap(s * 0.34, s * 0.1, s * 0.34) as Vec2[], 7.2, 0.22, 0, 0, 0);
+    b.pop();
+  } else {
+    b.tube(0, 3.2, 0, s * 0.16, s * 0.2, 6.4, detail > 0 ? 12 : 7);
+    b.use(k.wall2);
+    b.prismY(rect(s * 0.34, s * 0.34) as Vec2[], 0.7, 0.16, 0, 1.0, 0);
+  }
+  b.use(k.dmetal);
+  for (const sx of [-1, 1]) {
+    b.push();
+    b.move(sx * s * 0.2, 2.0, 0);
+    b.rotZ(sx * 0.22);
+    b.box(0, 0, 0, 0.2, 3.6, 0.2, 0.05);
+    b.pop();
+  }
+  b.use(k.teamLight);
+  b.box(0, 1.4, -s * 0.2, 0.5, 0.14, 0.12, 0.03);
+  b.pop();
+
+  // Emitter: a lens ring in a shroud, on the elevation bone.
+  const bar = rig.add('barrel', tur, 0, nod ? 7.0 : 6.6, 0);
+  def.barrel = bar;
+  def.muzzle = [0, 0, 1.4];
+  b.bone(bar);
+  b.push();
+  b.move(0, 6.4 + (nod ? 7.0 : 6.6), 0);
+  b.use(k.dark);
+  b.push();
+  b.rotX(Math.PI / 2);
+  b.tube(0, 0.4, 0, 0.62, 0.5, 1.3, detail > 0 ? 12 : 7);
+  b.pop();
+  b.use(k.metal);
+  b.push();
+  b.rotX(Math.PI / 2);
+  b.tube(0, 1.05, 0, 0.66, 0.6, 0.3, detail > 0 ? 12 : 7);
+  b.pop();
+  b.use(k.glow);
+  b.slab(0, 0, 1.25, 0.78, 0.78, 0.08);
+  if (detail > 0) {
+    b.use(k.crystal);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      b.box(Math.cos(a) * 0.66, Math.sin(a) * 0.66, 0.5, 0.2, 0.2, 0.9, 0.04);
+    }
+  }
+  b.pop();
+  b.bone(riser);
+}
+
+/* ---- repair bay ---- */
+
+/**
+ * An open service hangar: a gantry over a hardstand, with the door bone driving
+ * the crane so the bay visibly goes to work when something damaged parks in it.
+ */
+function repair(c: Ctx): void {
+  const { b, k, rig, def, riser, s, nod, detail } = c;
+  def.height = 9;
+  def.riseDepth = 8;
+
+  // Hardstand with a painted service square.
+  b.use(k.asphalt);
+  b.prismY(rect(s * 0.86, s * 0.86) as Vec2[], 0.4, 0.1, 0, 0.4, 0);
+  b.use(k.trim);
+  for (const sx of [-1, 1]) b.decal(sx * s * 0.34, 0.62, 0, 0.4, s * 0.7, 0);
+  for (const sz of [-1, 1]) b.decal(0, 0.62, sz * s * 0.34, s * 0.7, 0.4, 0);
+
+  // Two side bays with a clear drive-through between them.
+  b.use(k.wall);
+  for (const sx of [-1, 1]) {
+    b.box(sx * s * 0.36, 3.0, -s * 0.06, s * 0.24, 5.0, s * 0.74, 0.24);
+  }
+  b.use(k.wall2);
+  for (const sx of [-1, 1]) {
+    b.box(sx * s * 0.36, 5.7, -s * 0.06, s * 0.3, 0.6, s * 0.8, 0.16);
+  }
+
+  // Gantry beam across the bay, carrying the crane.
+  b.use(k.dmetal);
+  b.box(0, 6.4, 0, s * 0.9, 0.55, 0.7, 0.12);
+  b.box(0, 6.9, 0, s * 0.86, 0.3, 0.3, 0.06);
+  if (detail > 0) {
+    b.use(k.steel);
+    for (const sx of [-1, 1]) b.railing(sx * s * 0.36, 6.05, 0, s * 0.7, 0.28, 0.8);
+    b.ladder(-s * 0.46, 0.8, -s * 0.3, 5.2);
+    b.use(k.rust);
+    for (const sx of [-1, 1]) b.box(sx * s * 0.22, 1.3, -s * 0.34, 0.9, 1.4, 0.9, 0.18);
+    b.use(k.dmetal);
+    b.vents(nod ? -s * 0.36 : s * 0.36, 4.4, -s * 0.36, s * 0.16, s * 0.16, 5);
+  }
+
+  // Welding arc and hazard lamps: the bay reads "active" even at a glance.
+  b.use(k.amber);
+  for (const sx of [-1, 1]) b.box(sx * s * 0.3, 6.9, 0, 0.3, 0.3, 0.26, 0.06);
+  b.use(k.team);
+  b.box(0, 3.4, -s * 0.42, s * 0.36, 0.9, 0.16, 0.05);
+  banner(b, k, nod ? -s * 0.36 : s * 0.36, 3.4, s * 0.4, 1.5, 2.6, 1);
+
+  // The crane trolley drops when the bay is working.
+  const hook = rig.add('door', riser, 0, 6.1, 0);
+  def.door = { bone: hook, travel: [0, -2.6, 0], rate: 0.7 };
+  b.bone(hook);
+  b.push();
+  b.move(0, 6.1, 0);
+  b.use(k.metal);
+  b.box(0, 0, 0, 1.5, 0.5, 1.1, 0.1);
+  b.use(k.dmetal);
+  b.tube(0, -0.7, 0, 0.12, 0.12, 1.0, 6);
+  b.use(k.steel);
+  b.box(0, -1.35, 0, 0.9, 0.5, 0.6, 0.08);
+  b.use(k.glow);
+  b.slab(0, -1.62, 0, 0.5, 0.5, 0.08);
+  b.pop();
+  b.bone(riser);
+}
+
 /* ------------------------------------------------------------------ entry */
 
 const BUILDERS: Record<BuildingType, (c: Ctx) => unknown> = {
-  hq, power, refinery, barracks, factory, turret, sam, radar, lab,
+  hq, power, refinery, barracks, factory, pillbox, turret, sam, laser, repair, radar, lab,
 };
 
 export function buildStructure(

@@ -89,22 +89,25 @@ export class Vegetation implements System {
     if (density <= 0.01) return;
 
     const near = new GrassLayer(this.terrain, {
-      count: Math.round(34000 * density),
-      radius: 30,
+      count: Math.round(46000 * density),
+      radius: 28,
       // World units are metres, so the old 1.05 blade stood as tall as a
       // crouching rifleman and swallowed infantry whole at close zoom. Pasture
-      // grass is ankle-to-shin height; the far layer stays coarser because it
-      // has to cover ~8x the area with half the instances.
-      bladeWidth: 0.13,
-      bladeHeight: 0.50,
+      // grass is ankle-to-shin height.
+      bladeWidth: 0.075,
+      bladeHeight: 0.62,
       groundBlend: 0.85,
       seed: 1337,
     });
     const far = new GrassLayer(this.terrain, {
-      count: Math.round(16000 * density),
-      radius: 86,
-      bladeWidth: 0.30,
-      bladeHeight: 0.72,
+      // The far ring used to carry 0.30-wide blades so a thin instance budget
+      // still covered ground. At close zoom that is what it looked like: a
+      // scatter of flat green paddles lying on bare dirt rather than turf. A
+      // narrower blade over a tighter radius costs the same and reads as grass.
+      count: Math.round(26000 * density),
+      radius: 70,
+      bladeWidth: 0.125,
+      bladeHeight: 0.80,
       groundBlend: 1.0,
       seed: 90210,
     });
@@ -316,8 +319,14 @@ export class Vegetation implements System {
         if (r() < 0.045 + (1 - moisture) * 0.05) variant = 3;
 
         normalAt(x, z, normal);
-        groundQuaternion(normal, r() * Math.PI * 2, 0.22, quat);
-        pos.set(x, h - 0.35, z);
+        // Barely follow the slope. A tree grows toward the light, not normal to
+        // the hill, so anything past a slight lean reads as a felled trunk that
+        // has been stood back up in the wrong hole.
+        groundQuaternion(normal, r() * Math.PI * 2, 0.12, quat);
+        // Planted below the surface, not on it: the trunk's root flare (see
+        // ROOT_DEPTH in Trees) reaches ~1.9 further down, so the contact line is
+        // always inside the soil no matter how the drawn ground rounds.
+        pos.set(x, h - 0.55, z);
         const scale = 0.68 + r() * 0.62 - alt * 0.14;
         set.add(pos, quat, Math.max(0.5, scale), variant, r());
       },

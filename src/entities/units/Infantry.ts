@@ -67,6 +67,61 @@ function launcher(b: PartBuilder, k: Kit, detail: number): void {
   }
 }
 
+/** Anti-materiel rifle: long, bipodded, with a scope block on top. */
+function longRifle(b: PartBuilder, k: Kit, detail: number): void {
+  b.use(k.gear);
+  b.box(0, 0, 0.3, 0.1, 0.17, 1.25, 0.03);
+  b.use(k.metal);
+  b.box(0, 0.02, 1.05, 0.05, 0.055, 0.72, 0.015);
+  b.use(k.gear);
+  b.box(0, -0.14, -0.02, 0.09, 0.24, 0.24, 0.03);
+  // Scope: the silhouette tell at RTS zoom.
+  b.use(k.metal);
+  b.push();
+  b.rotX(Math.PI / 2);
+  b.tube(0, -0.42, -0.17, 0.055, 0.06, 0.44, detail > 0 ? 8 : 5, false, false);
+  b.pop();
+  b.use(k.visor);
+  b.slab(0, 0.17, 0.66, 0.07, 0.07, 0.02);
+  if (detail > 0) {
+    // Folded bipod under the fore-end.
+    b.use(k.metal);
+    for (const s of [-1, 1]) {
+      b.push();
+      b.move(s * 0.06, -0.16, 0.86);
+      b.rotZ(s * 0.5);
+      b.box(0, 0, 0, 0.035, 0.3, 0.035, 0.01);
+      b.pop();
+    }
+    b.use(k.gear);
+    b.box(0, 0.08, 1.5, 0.07, 0.07, 0.2, 0.02);
+  }
+}
+
+/** Flame projector: a stubby nozzle fed by a hose from the back tanks. */
+function projector(b: PartBuilder, k: Kit, detail: number): void {
+  b.use(k.metal);
+  b.push();
+  b.rotX(Math.PI / 2);
+  b.tube(0, 0.24, 0, 0.075, 0.085, 0.7, detail > 0 ? 9 : 6, false, false);
+  b.pop();
+  b.use(k.gear);
+  b.box(0, -0.02, 0.06, 0.12, 0.16, 0.42, 0.03);
+  b.box(0, -0.16, -0.06, 0.09, 0.2, 0.18, 0.03);
+  b.use(k.metal);
+  // Flared muzzle plus the pilot light that says "this thing is lit".
+  b.push();
+  b.rotX(Math.PI / 2);
+  b.tube(0, 0.62, 0, 0.13, 0.1, 0.14, detail > 0 ? 10 : 6, false, false);
+  b.pop();
+  b.use(k.amber);
+  b.slab(0.09, 0.03, 0.6, 0.05, 0.09, 0.05);
+  if (detail > 0) {
+    b.use(k.gear);
+    b.box(0, -0.1, -0.28, 0.07, 0.07, 0.3, 0.02);
+  }
+}
+
 function toolkit(b: PartBuilder, k: Kit, detail: number): void {
   b.use(k.amber);
   b.box(0, -0.18, 0.12, 0.26, 0.2, 0.4, 0.04);
@@ -245,6 +300,12 @@ function soldier(
   } else if (type === 'engineer') {
     def.muzzle = [0, 0, 0.3];
     toolkit(b, k, detail);
+  } else if (type === 'sniper') {
+    def.muzzle = [0, 0.02, 1.6];
+    longRifle(b, k, detail);
+  } else if (type === 'flamer') {
+    def.muzzle = [0, 0, 0.7];
+    projector(b, k, detail);
   } else {
     def.muzzle = [0, 0.02, 0.85];
     rifle(b, k, detail);
@@ -278,6 +339,42 @@ function soldier(
       b.box(0.24, 1.5, -0.34, 0.14, 0.3, 0.16, 0.04);
       b.use(k.amber);
       b.box(-0.24, 1.86, -0.36, 0.1, 0.1, 0.1, 0.03);
+    }
+  } else if (type === 'flamer') {
+    // Twin fuel bottles and a heat shroud. The bottles are the whole read at
+    // RTS zoom, so they sit high and proud of the pack rather than inside it.
+    b.use(k.metal);
+    for (const s of [-1, 1]) {
+      b.tube(s * 0.15, 1.74, -0.42, 0.15, 0.15, 0.78, detail > 0 ? 10 : 6);
+      b.use(k.armourDark);
+      b.tube(s * 0.15, 2.14, -0.42, 0.11, 0.13, 0.14, detail > 0 ? 10 : 6);
+      b.use(k.metal);
+    }
+    b.use(k.amber);
+    b.box(0, 1.5, -0.44, 0.16, 0.09, 0.09, 0.02);
+    b.use(k.armour);
+    // Face shield and heavier chest plate: this one walks into the fire.
+    b.box(0, 1.62, 0.22, 0.5, 0.5, 0.08, 0.03);
+    if (detail > 0) {
+      b.use(k.gear);
+      b.box(0.24, 1.5, -0.3, 0.1, 0.1, 0.3, 0.03);
+    }
+  } else if (type === 'sniper') {
+    // Ghillie drape over the shoulders plus a spotting scope on the pack.
+    b.use(k.fatigueDark);
+    b.push();
+    b.move(0, 1.72, -0.1);
+    b.prismY(trap(0.62, 0.46, 0.5) as Vec2[], 0.44, 0.05, 0, 0, 0);
+    b.pop();
+    b.use(k.gear);
+    b.box(0, 1.34, -0.3, 0.5, 0.14, 0.22, 0.04);
+    if (detail > 0) {
+      b.use(k.metal);
+      b.push();
+      b.move(-0.2, 1.92, -0.36);
+      b.rotX(Math.PI / 2);
+      b.tube(0, 0, 0, 0.06, 0.06, 0.4, 7, false, false);
+      b.pop();
     }
   } else if (detail > 0) {
     b.use(k.gear);

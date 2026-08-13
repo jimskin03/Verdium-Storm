@@ -126,6 +126,9 @@ export class PlayerController {
    * ================================================================== */
 
   private onPointerDown = (e: PointerEvent): void => {
+    this.pointerX = e.clientX;
+    this.pointerY = e.clientY;
+    this.hasPointer = true;
     if (e.button === 0) {
       this.dragging = true;
       this.dragStartX = e.clientX;
@@ -136,6 +139,13 @@ export class PlayerController {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    // Tracked on every move, not only while dragging: the placement ghost has
+    // to follow the cursor, and a ghost that only moved on mouse-down made a
+    // structure look like it appeared out of nowhere wherever you happened to
+    // click.
+    this.pointerX = e.clientX;
+    this.pointerY = e.clientY;
+    this.hasPointer = true;
     if (!this.dragging) return;
     this.dragX = e.clientX;
     this.dragY = e.clientY;
@@ -236,6 +246,9 @@ export class PlayerController {
       if (this.sim.placeReadyBuilding(this.team, tmpHit.x, tmpHit.z)) {
         this.placingType = -1;
         this.ghost.visible = false;
+      } else {
+        // Silence here read as "the click did nothing"; say why instead.
+        this.sim.pushAlert('cannotBuild', 'Cannot deploy here', tmpHit.x, tmpHit.z);
       }
       this.markCommanded();
       return;
@@ -504,15 +517,30 @@ export class PlayerController {
       this.ghost.visible = false;
       return;
     }
-    if (!this.groundAt(this.dragX || this.pointerX, this.dragY || this.pointerY, tmpHit)) return;
+    if (!this.hasPointer || !this.groundAt(this.pointerX, this.pointerY, tmpHit)) {
+      this.ghost.visible = false;
+      return;
+    }
     const ok = this.sim.canPlace(this.team, this.placingType, tmpHit.x, tmpHit.z);
     this.ghostMat.color.setHex(ok ? 0x6effa8 : 0xff5a4a);
-    this.ghost.position.set(tmpHit.x, heightAt(tmpHit.x, tmpHit.z) + this.ghost.scale.y * 0.5, tmpHit.z);
+    // Sit on the highest ground under the footprint, matching where the finished
+    // structure will actually stand.
+    const half = (BUILDING_LIST[this.placingType].footprint * NAV_CELL) / 2 - 1;
+    const y = Math.max(
+      heightAt(tmpHit.x, tmpHit.z),
+      heightAt(tmpHit.x - half, tmpHit.z - half),
+      heightAt(tmpHit.x + half, tmpHit.z - half),
+      heightAt(tmpHit.x - half, tmpHit.z + half),
+      heightAt(tmpHit.x + half, tmpHit.z + half),
+    );
+    this.ghost.position.set(tmpHit.x, y + this.ghost.scale.y * 0.5, tmpHit.z);
     this.ghost.visible = true;
   }
 
+  /** Latest cursor position in CSS pixels; drives the placement ghost. */
   private pointerX = 0;
   private pointerY = 0;
+  private hasPointer = false;
 
   /* ---------------- picking ---------------- */
 

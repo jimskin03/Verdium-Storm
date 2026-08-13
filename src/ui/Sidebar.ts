@@ -19,7 +19,9 @@ import { Minimap } from './Minimap';
 
 type TabId = 'structures' | 'infantry' | 'vehicles';
 
-const INFANTRY = new Set<string>(['rifleman', 'rocketeer', 'engineer', 'commando', 'medic', 'sniper']);
+const INFANTRY = new Set<string>([
+  'rifleman', 'rocketeer', 'engineer', 'sniper', 'flamer', 'commando', 'medic',
+]);
 
 const TABS: Array<{ id: TabId; label: string; kind: 'unit' | 'building' }> = [
   { id: 'structures', label: 'BUILD', kind: 'building' },

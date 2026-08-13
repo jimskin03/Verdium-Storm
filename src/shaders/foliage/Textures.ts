@@ -727,17 +727,21 @@ export function makeLeafAtlas(res = 1024): LeafAtlas {
 
   const rng = makeRng(0x5eed1eaf);
 
-  const broad: ClusterStyle = { count: 46, hue: [96, 138, 58], spread: 0.34, leafLen: 0.2, leafWid: 0.36, pointy: 0.85, twigs: 4 };
-  const broadDark: ClusterStyle = { ...broad, hue: [72, 112, 48], count: 54 };
-  const birch: ClusterStyle = { count: 62, hue: [136, 172, 78], spread: 0.33, leafLen: 0.15, leafWid: 0.5, pointy: 0.7, twigs: 5 };
-  const autumn: ClusterStyle = { count: 40, hue: [154, 108, 44], spread: 0.32, leafLen: 0.19, leafWid: 0.4, pointy: 0.8, twigs: 4 };
+  // Clusters fill most of their cell. A tight cluster in the middle of a mostly
+  // transparent cell is cheap to draw but reads as a ribbon of leaves floating
+  // in a gap once a dozen cards overlap into a canopy — the tree ends up
+  // see-through and stringy instead of massed.
+  const broad: ClusterStyle = { count: 78, hue: [88, 128, 54], spread: 0.42, leafLen: 0.17, leafWid: 0.4, pointy: 0.82, twigs: 5 };
+  const broadDark: ClusterStyle = { ...broad, hue: [64, 102, 44], count: 88 };
+  const birch: ClusterStyle = { count: 94, hue: [116, 154, 68], spread: 0.4, leafLen: 0.13, leafWid: 0.54, pointy: 0.7, twigs: 6 };
+  const autumn: ClusterStyle = { count: 62, hue: [148, 100, 40], spread: 0.4, leafLen: 0.16, leafWid: 0.44, pointy: 0.8, twigs: 5 };
 
   drawCluster(ctx, cellRect(0, res), broad, rng);
   drawCluster(ctx, cellRect(1, res), broadDark, rng);
-  drawCluster(ctx, cellRect(2, res), { ...broad, count: 38, spread: 0.3 }, rng);
-  drawCluster(ctx, cellRect(3, res), { ...broadDark, count: 44, leafLen: 0.24 }, rng);
+  drawCluster(ctx, cellRect(2, res), { ...broad, count: 66, spread: 0.38 }, rng);
+  drawCluster(ctx, cellRect(3, res), { ...broadDark, count: 72, leafLen: 0.2 }, rng);
   drawCluster(ctx, cellRect(4, res), birch, rng);
-  drawCluster(ctx, cellRect(5, res), { ...birch, hue: [148, 180, 92], count: 54 }, rng);
+  drawCluster(ctx, cellRect(5, res), { ...birch, hue: [128, 164, 80], count: 84 }, rng);
   drawNeedleSprig(ctx, cellRect(6, res), [58, 98, 62], rng);
   drawNeedleSprig(ctx, cellRect(7, res), [46, 82, 56], rng);
   drawNeedleSprig(ctx, cellRect(8, res), [66, 106, 66], rng);

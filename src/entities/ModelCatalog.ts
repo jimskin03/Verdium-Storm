@@ -31,7 +31,9 @@ import { NAV_CELL } from '@/game/sim/Nav';
  * property is generated in code at boot.
  */
 
-const INFANTRY: ReadonlySet<UnitType> = new Set<UnitType>(['rifleman', 'rocketeer', 'engineer']);
+const INFANTRY: ReadonlySet<UnitType> = new Set<UnitType>([
+  'rifleman', 'rocketeer', 'engineer', 'sniper', 'flamer',
+]);
 
 export class ModelCatalog implements System, ModelCatalogContract {
   readonly name = 'modelCatalog';
@@ -83,7 +85,11 @@ export class ModelCatalog implements System, ModelCatalogContract {
     return this.asset(`u:${type}:${faction}`, () => {
       const build = INFANTRY.has(type)
         ? buildInfantry(type, faction, this.detail)
-        : buildVehicle(type as 'tank' | 'artillery' | 'aa' | 'scout' | 'harvester', faction, this.detail);
+        : buildVehicle(
+            type as 'tank' | 'artillery' | 'aa' | 'scout' | 'harvester' | 'apc' | 'mlrs' | 'mammoth',
+            faction,
+            this.detail,
+          );
       return { def: build.def, geometry: build.builder.build() };
     });
   }
