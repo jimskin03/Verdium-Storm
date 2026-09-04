@@ -15,6 +15,8 @@ import type {
 import { Sim, UNIT_CAP } from '@/game/sim/Sim';
 import { Commander, DEFAULT_CONFIG } from '@/game/sim/Ai';
 import { PlayerController } from '@/game/sim/Commands';
+import { MultiplayerLobby, type MultiplayerAction } from '@/game/Multiplayer';
+import { refSlot } from '@/game/sim/Entities';
 import {
   BUILDING_ID,
   BUILDING_LIST,
@@ -54,7 +56,13 @@ export class Battlefield implements System, GameStateService {
   private player!: PlayerController;
   private commanders: Commander[] = [];
   private camera!: THREE.PerspectiveCamera;
+  private context!: EngineContext;
   private started = false;
+  private multiplayer: MultiplayerLobby | null = null;
+  private multiplayerUnsubscribe: (() => void) | null = null;
+  private remoteActions: MultiplayerAction[] = [];
+  private playerTeam: Team = PLAYER_TEAM;
+  private playerFaction: Faction = PLAYER_FACTION;
 
   private listeners: Array<() => void> = [];
   private signature = '';
@@ -65,8 +73,8 @@ export class Battlefield implements System, GameStateService {
   private options: BuildOption[] = [];
   private blips: MinimapBlip[] = [];
 
-  readonly team: Team = PLAYER_TEAM;
-  readonly faction: Faction = PLAYER_FACTION;
+  get team(): Team { return this.playerTeam; }
+  get faction(): Faction { return this.playerFaction; }
   readonly unitCap = UNIT_CAP;
 
   /* ================================================================== *
@@ -74,37 +82,15 @@ export class Battlefield implements System, GameStateService {
    * ================================================================== */
 
   init(ctx: EngineContext): void {
+    this.context = ctx;
     this.camera = ctx.camera;
-
-    this.sim = new Sim(ctx.scene, {
-      playerTeam: PLAYER_TEAM,
-      playerFaction: PLAYER_FACTION,
-      enemyFaction: ENEMY_FACTION,
-      seed: MATCH_SEED,
-      autoPlayer: true,
-    });
-    this.sim.build();
-
-    this.player = new PlayerController(this.sim, PLAYER_TEAM);
-    this.player.init(ctx);
-
-    this.commanders = [
-      new Commander(this.sim, 0, MATCH_SEED ^ 0x11, DEFAULT_CONFIG),
-      new Commander(this.sim, 1, MATCH_SEED ^ 0x22, { ...DEFAULT_CONFIG, aggression: 1.15 }),
-    ];
-    // A human taking control releases their own commander but not the enemy's.
-    this.player.onFirstCommand = () => this.commanders[PLAYER_TEAM].release();
-
-    // Lower tiers cannot afford the shroud overlay's fill cost on top of the
-    // terrain; the grids stay live either way so the minimap is unaffected.
-    if (ctx.quality.tier === 'low') this.sim.fog.setEnabled(false);
-
-    this.started = true;
+    this.resetMatch(PLAYER_FACTION, null);
     provide('game', this);
   }
 
   update(dt: number): void {
     if (!this.started) return;
+    this.applyRemoteActions();
     this.player.update(dt);
     if (!this.sim.paused) {
       for (const c of this.commanders) c.update(dt);
@@ -114,6 +100,7 @@ export class Battlefield implements System, GameStateService {
   }
 
   dispose(): void {
+    this.multiplayerUnsubscribe?.();
     this.player?.dispose();
     this.sim?.dispose();
     this.listeners.length = 0;
@@ -295,15 +282,15 @@ export class Battlefield implements System, GameStateService {
 
   queueBuild(id: BuildableId): void {
     if (!this.started) return;
-    if (isUnitType(id)) this.sim.queueUnit(this.team, UNIT_ID[id]);
-    else if (isBuildingType(id)) this.sim.queueBuilding(this.team, BUILDING_ID[id]);
+    this.queueBuildFor(this.team, id);
+    this.multiplayer?.sendAction({ type: 'queue-build', id });
     this.takeControl();
   }
 
   cancelBuild(id: BuildableId): void {
     if (!this.started) return;
-    if (isUnitType(id)) this.sim.cancelUnit(this.team, UNIT_ID[id]);
-    else if (isBuildingType(id)) this.sim.cancelBuilding(this.team, BUILDING_ID[id]);
+    this.cancelBuildFor(this.team, id);
+    this.multiplayer?.sendAction({ type: 'cancel-build', id });
     this.takeControl();
   }
 
@@ -330,6 +317,9 @@ export class Battlefield implements System, GameStateService {
 
   setPaused(paused: boolean): void {
     if (!this.started) return;
+    // A local pause would desynchronise a live two-player simulation. Settings
+    // remain usable, but the tactical clock stays running in a networked room.
+    if (this.multiplayer?.isLaunched && paused) return;
     this.sim.paused = paused;
   }
 
@@ -339,7 +329,121 @@ export class Battlefield implements System, GameStateService {
   }
 
   private takeControl(): void {
-    this.commanders[PLAYER_TEAM]?.release();
+    this.commanders[this.team]?.release();
+  }
+
+  /**
+   * Starts a fresh deterministic match for the menu's selected mode. The
+   * engine keeps the Battlefield system alive, while the simulation and input
+   * controller are safely rebuilt underneath it.
+   */
+  configureMatch(faction: Faction, lobby: MultiplayerLobby | null = null): void {
+    this.resetMatch(faction, lobby);
+  }
+
+  private resetMatch(faction: Faction, lobby: MultiplayerLobby | null): void {
+    this.multiplayerUnsubscribe?.();
+    this.multiplayerUnsubscribe = null;
+    this.player?.dispose();
+    this.sim?.dispose();
+
+    this.multiplayer = lobby;
+    this.playerTeam = lobby?.team ?? PLAYER_TEAM;
+    // Multiplayer teams always use the same opposing faction pair, ensuring
+    // both browser instances seed the same entities and entity references.
+    this.playerFaction = lobby ? (this.playerTeam === 0 ? 'gdi' : 'nod') : faction;
+    const enemyFaction: Faction = this.playerFaction === 'gdi' ? 'nod' : 'gdi';
+    const seed = lobby?.seed ?? MATCH_SEED;
+
+    this.sim = new Sim(this.context.scene, {
+      playerTeam: this.playerTeam,
+      playerFaction: this.playerFaction,
+      enemyFaction,
+      seed,
+      autoPlayer: lobby === null,
+    });
+    this.sim.build();
+
+    this.player = new PlayerController(this.sim, this.playerTeam);
+    this.player.init(this.context);
+    this.player.onAction = lobby ? (action) => lobby.sendAction(action) : null;
+
+    if (lobby) {
+      this.commanders = [];
+      this.multiplayerUnsubscribe = lobby.onAction((action) => this.remoteActions.push(action));
+    } else {
+      this.commanders = [
+        new Commander(this.sim, 0, seed ^ 0x11, DEFAULT_CONFIG),
+        new Commander(this.sim, 1, seed ^ 0x22, { ...DEFAULT_CONFIG, aggression: 1.15 }),
+      ];
+      // A human taking control releases their own commander but not the enemy's.
+      this.player.onFirstCommand = () => this.commanders[this.team]?.release();
+    }
+
+    // Lower tiers cannot afford the shroud overlay's fill cost on top of the
+    // terrain; the grids stay live either way so the minimap is unaffected.
+    if (this.context.quality.tier === 'low') this.sim.fog.setEnabled(false);
+
+    this.remoteActions.length = 0;
+    this.started = true;
+    this.signature = '';
+    this.refresh();
+  }
+
+  private queueBuildFor(team: Team, id: BuildableId): void {
+    if (isUnitType(id)) this.sim.queueUnit(team, UNIT_ID[id]);
+    else if (isBuildingType(id)) this.sim.queueBuilding(team, BUILDING_ID[id]);
+  }
+
+  private cancelBuildFor(team: Team, id: BuildableId): void {
+    if (isUnitType(id)) this.sim.cancelUnit(team, UNIT_ID[id]);
+    else if (isBuildingType(id)) this.sim.cancelBuilding(team, BUILDING_ID[id]);
+  }
+
+  /** Replays received commands as the opposing team without touching local UI selection. */
+  private applyRemoteActions(): void {
+    if (!this.multiplayer || this.remoteActions.length === 0) return;
+    const team: Team = this.team === 0 ? 1 : 0;
+    const actions = this.remoteActions.splice(0);
+    for (const action of actions) {
+      if (action.type === 'queue-build') {
+        this.queueBuildFor(team, action.id);
+      } else if (action.type === 'cancel-build') {
+        this.cancelBuildFor(team, action.id);
+      } else if (action.type === 'place-building') {
+        this.sim.placeReadyBuilding(team, action.x, action.z);
+      } else if (action.type === 'stance') {
+        for (const ref of action.refs) {
+          if (!this.sim.units.valid(ref)) continue;
+          const slot = refSlot(ref);
+          if (this.sim.units.team[slot] === team) this.sim.setStance(slot, action.stance);
+        }
+      } else if (action.type === 'stop') {
+        for (const ref of action.refs) {
+          if (!this.sim.units.valid(ref)) continue;
+          const slot = refSlot(ref);
+          if (this.sim.units.team[slot] !== team) continue;
+          this.sim.units.clearOrders(slot);
+          this.sim.units.hasGoal[slot] = 0;
+        }
+      } else if (action.type === 'orders') {
+        for (const rally of action.rally) {
+          if (!this.sim.buildings.valid(rally.ref)) continue;
+          const slot = refSlot(rally.ref);
+          if (this.sim.buildings.team[slot] !== team) continue;
+          this.sim.buildings.rallyX[slot] = rally.x;
+          this.sim.buildings.rallyZ[slot] = rally.z;
+          this.sim.buildings.hasRally[slot] = 1;
+        }
+        for (const order of action.orders) {
+          if (!this.sim.units.valid(order.ref)) continue;
+          const slot = refSlot(order.ref);
+          if (this.sim.units.team[slot] === team) {
+            this.sim.issueOrder(slot, order.order, order.x, order.z, order.target, order.queued);
+          }
+        }
+      }
+    }
   }
 
   /* ================================================================== *
@@ -363,8 +467,8 @@ export class Battlefield implements System, GameStateService {
       ...s,
       structures,
       units,
-      ai0: this.commanders[0].status(),
-      ai1: this.commanders[1].status(),
+      ai0: this.commanders[0]?.status() ?? 'multiplayer',
+      ai1: this.commanders[1]?.status() ?? 'multiplayer',
     };
   }
 }
