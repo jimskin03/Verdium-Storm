@@ -334,7 +334,7 @@ export class MultiplayerLobby {
         this.setState('waiting', `Room ${this._roomCode} is online. Waiting for Commander 2.`);
       } else if (message.state === 'ready') {
         this.setState('ready', this._isHost
-          ? 'Commander 2 connected. Select DEPLOY to start the match.'
+          ? 'Commander 2 connected. Press DEPLOY MATCH in the room panel to start.'
           : 'Connected as Commander 2. Awaiting host deployment order.');
       } else if (this._state !== 'launched') {
         this.launchLocal();

@@ -54,6 +54,7 @@ export class Menu {
   private joinCode!: HTMLInputElement;
   private joinPassword!: HTMLInputElement;
   private deployButton!: HTMLDivElement;
+  private lobbyLaunch!: HTMLDivElement;
   private readonly lobby = new MultiplayerLobby();
   private launchingLobby: MultiplayerLobby | null = null;
 
@@ -181,6 +182,16 @@ export class Menu {
     this.lobbyStatus = div('vs-lobby-status', readout);
     this.lobbyStatus.setAttribute('role', 'status');
     this.lobbyStatus.setAttribute('aria-live', 'polite');
+
+    this.lobbyLaunch = div('vs-lobby-launch', this.lobbyPanel);
+    this.lobbyLaunch.textContent = 'DEPLOY MATCH';
+    this.lobbyLaunch.setAttribute('role', 'button');
+    this.lobbyLaunch.setAttribute('aria-label', 'Deploy multiplayer match');
+    this.lobbyLaunch.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.requestDeploy();
+    });
   }
 
   private lobbyInput(parent: HTMLElement, placeholder: string, autocomplete: string): HTMLInputElement {
@@ -230,6 +241,12 @@ export class Menu {
     this.lobbyCode.textContent = snapshot.roomCode ? `ROOM CODE  ${snapshot.roomCode}` : 'ROOM CODE  — — — — — —';
     const canLaunch = snapshot.isHost && snapshot.state === 'ready';
     this.deployButton?.classList.toggle('armed', canLaunch || this.mode === 'solo');
+    this.deployButton.textContent = canLaunch ? 'DEPLOY MATCH' : 'DEPLOY';
+    setClass(this.lobbyLaunch, 'on', canLaunch);
+    if (canLaunch) {
+      this.lobbyStatus.textContent = 'Commander 2 is connected. Press DEPLOY MATCH below to start.';
+      this.lobbyLaunch.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   }
 
   private requestDeploy(): void {
@@ -242,7 +259,7 @@ export class Menu {
       return;
     }
     if (this.lobby.isReady) {
-      this.lobbyStatus.textContent = 'Connected. Commander 1 chooses DEPLOY to start the match.';
+      this.lobbyStatus.textContent = 'Connected. Wait for Commander 1 — only the host can press DEPLOY MATCH.';
     } else {
       this.lobbyStatus.textContent = 'Create a room or join one with its room code and password before deployment.';
     }
