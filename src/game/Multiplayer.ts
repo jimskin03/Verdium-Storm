@@ -268,14 +268,20 @@ export class MultiplayerLobby {
         resolve(success);
       };
       const timeout = globalThis.setTimeout(() => {
-        if (generation !== this.connectionGeneration) return;
+        if (generation !== this.connectionGeneration) {
+          finish(false);
+          return;
+        }
         this.setState('error', 'The multiplayer server did not respond in time.');
         socket.close(4000, 'Connection timeout');
         finish(false);
       }, 12_000);
 
       socket.addEventListener('open', () => {
-        if (generation !== this.connectionGeneration) return;
+        if (generation !== this.connectionGeneration) {
+          finish(false);
+          return;
+        }
         socket.send(JSON.stringify({
           type: 'authenticate',
           protocolVersion: PROTOCOL_VERSION,
@@ -284,21 +290,31 @@ export class MultiplayerLobby {
         }));
       });
       socket.addEventListener('message', (event) => {
-        if (generation !== this.connectionGeneration || !('data' in event)) return;
+        if (generation !== this.connectionGeneration) {
+          finish(false);
+          return;
+        }
+        if (!('data' in event)) return;
         const message = parseWireMessage(event.data);
         if (!message) return;
         if (message.type === 'room_snapshot') finish(true);
         this.handleMessage(message);
       });
       socket.addEventListener('error', () => {
-        if (generation !== this.connectionGeneration) return;
+        if (generation !== this.connectionGeneration) {
+          finish(false);
+          return;
+        }
         if (!settled) {
           this.setState('error', 'Unable to establish the multiplayer network link.');
           finish(false);
         }
       });
       socket.addEventListener('close', () => {
-        if (generation !== this.connectionGeneration) return;
+        if (generation !== this.connectionGeneration) {
+          finish(false);
+          return;
+        }
         this.socket = null;
         if (this._state !== 'idle' && this._state !== 'error') {
           this.setState('error', 'The multiplayer connection closed. Create a new room to continue.');
