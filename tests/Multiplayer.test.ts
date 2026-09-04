@@ -143,4 +143,46 @@ describe('MultiplayerLobby network transport', () => {
     expect(lobby.roomCode).toBe('');
     expect(socketCreations).toBe(0);
   });
+
+  test('settles create() if the lobby is closed during the WebSocket handshake', async () => {
+    class PendingSocket {
+      readyState = 0;
+      private readonly listeners = new Map<string, Array<(event: Event | MessageEvent) => void>>();
+      send(): void {}
+      close(): void {
+        this.readyState = 3;
+        for (const listener of this.listeners.get('close') ?? []) listener(new Event('close'));
+      }
+      addEventListener(type: 'open' | 'message' | 'close' | 'error', listener: (event: Event | MessageEvent) => void): void {
+        const list = this.listeners.get(type) ?? [];
+        list.push(listener);
+        this.listeners.set(type, list);
+      }
+    }
+
+    let socket: PendingSocket | null = null;
+    const lobby = new MultiplayerLobby({
+      serverUrl: baseUrl,
+      fetch: async () => new Response(JSON.stringify({
+        protocolVersion: 1,
+        roomCode: 'ABC234',
+        sessionToken: 'a'.repeat(43),
+        isHost: true,
+        team: 0,
+        seed: 42,
+      }), { status: 201, headers: { 'content-type': 'application/json' } }),
+      webSocket: () => {
+        socket = new PendingSocket();
+        return socket;
+      },
+    });
+    lobbies.push(lobby);
+
+    const creating = lobby.create(PASSWORD);
+    await waitFor(() => socket !== null);
+    lobby.close();
+    await expect(creating).resolves.toBe(false);
+    expect(lobby.state).toBe('idle');
+    expect(lobby.roomCode).toBe('');
+  });
 });
