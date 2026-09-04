@@ -694,7 +694,8 @@ function css(): string {
 
 .vs-menu .stage {
   position: relative; height: 100%; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 22px; padding: 40px;
+  align-items: center; justify-content: center; gap: 22px; padding: 40px 40px 52px;
+  overflow-x: hidden; overflow-y: auto;
 }
 .vs-menu .wordmark { display: block; filter: drop-shadow(0 6px 30px rgba(255,180,42,.28)); }
 .vs-menu .tagline {
@@ -746,6 +747,19 @@ function css(): string {
 .vs-lobby-readout { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
 .vs-lobby-code { flex: none; font-family: var(--font-display); font-size: 9px; letter-spacing: .18em; color: var(--accent-soft); }
 .vs-lobby-status { text-align: right; font-family: var(--font-ui); font-size: 10px; line-height: 1.3; color: var(--ink-dim); }
+.vs-lobby-launch {
+  display: none; margin-top: 12px; height: 42px; align-items: center; justify-content: center; cursor: pointer;
+  font-family: var(--font-display); font-size: 12px; letter-spacing: .28em; text-indent: .28em; color: #100a00;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-deep) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -3px 0 rgba(0,0,0,.35), 0 0 28px rgba(255,180,42,.42);
+  animation: vs-lobby-pulse 1.15s ease-in-out infinite;
+}
+.vs-lobby-launch.on { display: flex; }
+.vs-lobby-launch:hover { filter: brightness(1.12); }
+@keyframes vs-lobby-pulse {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -3px 0 rgba(0,0,0,.35), 0 0 18px rgba(255,180,42,.28); }
+  50% { box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -3px 0 rgba(0,0,0,.35), 0 0 36px rgba(255,180,42,.62); }
+}
 
 .vs-rules { width: min(720px, 82vw); padding: 9px 12px 10px; background: rgba(6,12,16,.66); border-top: 1px solid rgba(255,180,42,.28); border-bottom: 1px solid rgba(255,180,42,.16); }
 .vs-rules-title { margin-bottom: 7px; font-family: var(--font-display); font-size: 9px; letter-spacing: .24em; color: var(--accent-soft); }
@@ -795,7 +809,8 @@ function css(): string {
   box-shadow: inset 0 1px 0 rgba(255,255,255,.5), inset 0 -3px 0 rgba(0,0,0,.4), 0 0 34px rgba(255,180,42,.34);
 }
 .vs-mbtn.primary:hover { filter: brightness(1.14); color: #100a00; }
-.vs-mbtn.primary:not(.armed) { opacity: .58; }
+.vs-mbtn.primary:not(.armed) { opacity: .58; pointer-events: none; }
+.vs-mbtn.primary.armed { animation: vs-lobby-pulse 1.15s ease-in-out infinite; }
 
 .vs-seg { display: flex; gap: 2px; }
 .vs-seg .o {
