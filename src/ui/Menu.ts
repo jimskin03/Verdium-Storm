@@ -1,4 +1,5 @@
 import type { Faction } from '@/entities/Types';
+import { MultiplayerLobby, type LobbySnapshot } from '@/game/Multiplayer';
 import { crest } from './Icons';
 import { FACTIONS, type FactionTheme } from './Theme';
 import { div, el, setClass, setText, shieldInput } from './dom';
@@ -45,12 +46,22 @@ export class Menu {
   private selected: Faction = 'gdi';
   private progress = -1;
   private logIndex = 0;
+  private mode: 'solo' | 'multiplayer' = 'solo';
+  private lobbyPanel!: HTMLDivElement;
+  private lobbyStatus!: HTMLDivElement;
+  private lobbyCode!: HTMLDivElement;
+  private createPassword!: HTMLInputElement;
+  private joinCode!: HTMLInputElement;
+  private joinPassword!: HTMLInputElement;
+  private deployButton!: HTMLDivElement;
+  private readonly lobby = new MultiplayerLobby();
+  private launchingLobby: MultiplayerLobby | null = null;
 
   readonly options: MenuOptions = { healthBars: true, fogOfWar: true };
 
   constructor(
     parent: HTMLElement,
-    private readonly onDeploy: (faction: Faction) => void,
+    private readonly onDeploy: (faction: Faction, lobby: MultiplayerLobby | null) => void,
     private readonly onPreview: (faction: Faction) => void,
     private readonly onOption: (key: keyof MenuOptions, value: boolean) => void,
   ) {
@@ -70,22 +81,42 @@ export class Menu {
     tagline.textContent = 'TACTICAL WARFARE ENGINE';
     div('divider', this.stage);
 
+    const matchModes = div('vs-match-modes', this.stage);
+    const solo = div('vs-mode on', matchModes);
+    solo.textContent = 'SOLO COMMAND';
+    const multiplayer = div('vs-mode', matchModes);
+    multiplayer.textContent = '2 PLAYER ROOM';
+    solo.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.setMode('solo', solo, multiplayer);
+    });
+    multiplayer.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.setMode('multiplayer', solo, multiplayer);
+    });
+
+    this.buildLobby();
+
     const cards = div('vs-cards', this.stage);
     for (const theme of Object.values(FACTIONS)) this.cards.set(theme.id, this.makeCard(cards, theme));
 
     div('divider', this.stage);
+
+    this.buildInstructions();
 
     const optrow = div('vs-optrow', this.stage);
     this.toggle(optrow, 'TACTICAL OVERLAY', 'healthBars');
     this.toggle(optrow, 'FOG OF WAR', 'fogOfWar');
 
     const buttons = div('vs-mbtns', this.stage);
-    const deploy = div('vs-mbtn primary', buttons);
-    deploy.textContent = 'DEPLOY';
-    deploy.addEventListener('pointerdown', (e) => {
+    this.deployButton = div('vs-mbtn primary', buttons);
+    this.deployButton.textContent = 'DEPLOY';
+    this.deployButton.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.beginDeploy();
+      this.requestDeploy();
     });
 
     const foot = div('foot', this.root);
@@ -105,6 +136,114 @@ export class Menu {
     this.loadLog = div('log', this.load);
 
     this.select('gdi');
+    this.lobby.subscribe((snapshot) => this.updateLobby(snapshot));
+    this.lobby.onLaunch(() => this.beginDeploy(this.lobby));
+  }
+
+  private buildLobby(): void {
+    this.lobbyPanel = div('vs-lobby', this.stage);
+    const heading = div('vs-lobby-heading', this.lobbyPanel);
+    heading.textContent = 'SECURE TWO-COMMANDER LINK';
+    const detail = div('vs-lobby-detail', this.lobbyPanel);
+    detail.textContent = 'Open the same game address in a second browser tab or window. Share the room code and password with Commander 2.';
+
+    const columns = div('vs-lobby-columns', this.lobbyPanel);
+    const create = div('vs-lobby-column', columns);
+    const createTitle = el('b', '', create);
+    createTitle.textContent = 'CREATE ROOM';
+    this.createPassword = this.lobbyInput(create, 'ROOM PASSWORD', 'new-password');
+    const createButton = div('vs-lobby-action', create);
+    createButton.textContent = 'CREATE SECURE ROOM';
+    createButton.addEventListener('pointerdown', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await this.lobby.create(this.createPassword.value);
+    });
+
+    const join = div('vs-lobby-column', columns);
+    const joinTitle = el('b', '', join);
+    joinTitle.textContent = 'JOIN ROOM';
+    this.joinCode = this.lobbyInput(join, 'ROOM CODE', 'off');
+    this.joinCode.type = 'text';
+    this.joinCode.maxLength = 6;
+    this.joinCode.addEventListener('input', () => { this.joinCode.value = this.joinCode.value.toUpperCase(); });
+    this.joinPassword = this.lobbyInput(join, 'ROOM PASSWORD', 'current-password');
+    const joinButton = div('vs-lobby-action', join);
+    joinButton.textContent = 'JOIN WITH PASSWORD';
+    joinButton.addEventListener('pointerdown', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await this.lobby.join(this.joinCode.value, this.joinPassword.value);
+    });
+
+    const readout = div('vs-lobby-readout', this.lobbyPanel);
+    this.lobbyCode = div('vs-lobby-code', readout);
+    this.lobbyStatus = div('vs-lobby-status', readout);
+  }
+
+  private lobbyInput(parent: HTMLElement, placeholder: string, autocomplete: string): HTMLInputElement {
+    const input = el('input', 'vs-lobby-input', parent);
+    input.type = 'password';
+    input.placeholder = placeholder;
+    input.setAttribute('autocomplete', autocomplete);
+    input.spellcheck = false;
+    input.addEventListener('pointerdown', (event) => event.stopPropagation());
+    return input;
+  }
+
+  private buildInstructions(): void {
+    const rules = div('vs-rules', this.stage);
+    const title = div('vs-rules-title', rules);
+    title.textContent = 'FIELD MANUAL · MATCH RULES';
+    const grid = div('vs-rules-grid', rules);
+    const entries = [
+      ['OBJECTIVE', 'Expand, secure Verdium, and destroy the opposing base.'],
+      ['ECONOMY', 'Harvest crystals at refineries to fund production.'],
+      ['POWER', 'Keep power positive or production slows and defences fail.'],
+      ['COMMAND', 'Left-click selects. Right-click moves, attacks, harvests, or sets a rally point.'],
+      ['VICTORY', 'Eliminate enemy structures before they eliminate yours.'],
+      ['MULTIPLAYER', 'One host creates a password room; a second player joins with its code and password.'],
+    ];
+    for (const [label, copy] of entries) {
+      const rule = div('vs-rule', grid);
+      const labelNode = el('b', '', rule);
+      labelNode.textContent = label;
+      const copyNode = el('span', '', rule);
+      copyNode.textContent = copy;
+    }
+  }
+
+  private setMode(mode: 'solo' | 'multiplayer', solo: HTMLElement, multiplayer: HTMLElement): void {
+    this.mode = mode;
+    setClass(solo, 'on', mode === 'solo');
+    setClass(multiplayer, 'on', mode === 'multiplayer');
+    setClass(this.lobbyPanel, 'on', mode === 'multiplayer');
+    if (mode === 'solo') this.lobby.close();
+    else this.updateLobby(this.lobby.snapshot());
+  }
+
+  private updateLobby(snapshot: LobbySnapshot): void {
+    if (!this.lobbyStatus) return;
+    this.lobbyStatus.textContent = snapshot.message;
+    this.lobbyCode.textContent = snapshot.roomCode ? `ROOM CODE  ${snapshot.roomCode}` : 'ROOM CODE  — — — — — —';
+    const canLaunch = snapshot.isHost && snapshot.state === 'ready';
+    this.deployButton?.classList.toggle('armed', canLaunch || this.mode === 'solo');
+  }
+
+  private requestDeploy(): void {
+    if (this.mode === 'solo') {
+      this.beginDeploy(null);
+      return;
+    }
+    if (this.lobby.isReady && this.lobby.isHost) {
+      this.lobby.launch();
+      return;
+    }
+    if (this.lobby.isReady) {
+      this.lobbyStatus.textContent = 'Connected. Commander 1 chooses DEPLOY to start the match.';
+    } else {
+      this.lobbyStatus.textContent = 'Create a room or join one with its room code and password before deployment.';
+    }
   }
 
   private makeCard(parent: HTMLElement, theme: FactionTheme): HTMLDivElement {
@@ -172,8 +311,9 @@ export class Menu {
     this.onPreview(faction);
   }
 
-  private beginDeploy(): void {
+  private beginDeploy(lobby: MultiplayerLobby | null): void {
     if (this.progress >= 0) return;
+    this.launchingLobby = lobby;
     this.progress = 0;
     this.logIndex = 0;
     this.loadLog.textContent = '';
@@ -188,6 +328,7 @@ export class Menu {
     this.stage.style.display = '';
     setClass(this.load, 'on', false);
     this.progress = -1;
+    this.launchingLobby = null;
   }
 
   hide(): void {
@@ -217,7 +358,8 @@ export class Menu {
     if (this.progress >= 1) {
       this.progress = -1;
       this.hide();
-      this.onDeploy(this.selected);
+      this.onDeploy(this.selected, this.launchingLobby);
+      this.launchingLobby = null;
     }
   }
 }

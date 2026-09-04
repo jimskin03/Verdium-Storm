@@ -3,6 +3,7 @@ import { Phase, type EngineContext, type System } from '@/engine/System';
 import { tryGet, whenReady } from '@/engine/Services';
 import type { GameStateService } from '@/game/GameState';
 import type { Faction } from '@/entities/Types';
+import type { MultiplayerLobby } from '@/game/Multiplayer';
 
 import { installStyles } from './Styles';
 import { installDisplayFont } from './Typeface';
@@ -131,7 +132,7 @@ export class Hud implements System {
     );
     this.menu = new Menu(
       this.root,
-      (faction) => this.startMatch(faction),
+      (faction, lobby) => this.startMatch(faction, lobby),
       (faction) => this.setFaction(faction),
       (key, value) => this.applyOption(key, value),
     );
@@ -333,8 +334,13 @@ export class Hud implements System {
     else if (key === 'camSpeed') rig.panSpeedMultiplier = value as number;
   }
 
-  private startMatch(faction: Faction): void {
-    this.setFaction(faction);
+  private startMatch(faction: Faction, lobby: MultiplayerLobby | null = null): void {
+    const matchFaction: Faction = lobby ? (lobby.team === 0 ? 'gdi' : 'nod') : faction;
+    const configurable = this.game as GameStateService & {
+      configureMatch?: (selectedFaction: Faction, session: MultiplayerLobby | null) => void;
+    };
+    configurable.configureMatch?.(matchFaction, lobby);
+    this.setFaction(matchFaction);
     this.menu.hide();
     this.hudPhase = 'match';
     this.root.dataset.phase = 'match';

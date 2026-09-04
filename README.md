@@ -31,6 +31,18 @@ npm run preview    # serve the built output
 npm run typecheck  # tsc --noEmit
 ```
 
+## Two-player rooms
+
+Choose **2 Player Room** on the main menu. The host creates a room with a
+password and shares the displayed six-character room code plus that password.
+The second commander opens the same deployed game address in another browser
+tab or window, enters both values, and waits for the host to press **Deploy**.
+
+Rooms use the browser's `BroadcastChannel` transport, so they work between
+same-origin tabs/windows in the same browser profile without requiring a game
+server. The host controls GDI and the joining player controls Nod; build,
+placement, stance, stop, rally, and movement/attack commands are relayed.
+
 Query parameters: `?quality=low|medium|high|ultra` forces a quality tier,
 `?dpr=1` pins device pixel ratio, `?day=<minutes>` starts the day/night clock
 (frozen by default so screenshots stay comparable), `?tod=0..1` sets time of day

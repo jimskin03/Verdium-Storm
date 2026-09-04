@@ -4,6 +4,7 @@ import type { EngineContext } from '@/engine/System';
 import { HALF_WORLD, RESOURCE_FIELDS, heightAt, raycastHeightfield } from '@/world/Heightfield';
 import { TEAM_COLORS } from '@/entities/Types';
 import type { BuildableId, SelectionSummary } from '@/game/GameState';
+import type { MultiplayerAction } from '@/game/Multiplayer';
 import {
   BUILDING_ID,
   BUILDING_LIST,
@@ -69,6 +70,8 @@ export class PlayerController {
 
   /** Raised the first time the human commands anything. */
   onFirstCommand: (() => void) | null = null;
+  /** Stateful commands that need replaying by the other multiplayer client. */
+  onAction: ((action: MultiplayerAction) => void) | null = null;
   private commanded = false;
 
   /** Scratch buffers for the selection ring pass; never reallocated. */
@@ -192,12 +195,15 @@ export class PlayerController {
     if (code === 'KeyC') return this.applyStance(Stance.HoldFire);
     if (code === 'KeyS') {
       // Stop: clear every queued order but keep the selection.
+      const refs: number[] = [];
       for (const ref of this.selected) {
         if (refKind(ref) !== KIND_UNIT || !this.sim.units.valid(ref)) continue;
         const slot = refSlot(ref);
         this.sim.units.clearOrders(slot);
         this.sim.units.hasGoal[slot] = 0;
+        refs.push(ref);
       }
+      if (refs.length) this.onAction?.({ type: 'stop', refs });
       this.markCommanded();
       return;
     }
@@ -214,10 +220,13 @@ export class PlayerController {
   };
 
   private applyStance(stance: number): void {
+    const refs: number[] = [];
     for (const ref of this.selected) {
       if (refKind(ref) !== KIND_UNIT || !this.sim.units.valid(ref)) continue;
       this.sim.setStance(refSlot(ref), stance);
+      refs.push(ref);
     }
+    if (refs.length) this.onAction?.({ type: 'stance', refs, stance });
     this.markCommanded();
   }
 
@@ -246,6 +255,7 @@ export class PlayerController {
       if (this.sim.placeReadyBuilding(this.team, tmpHit.x, tmpHit.z)) {
         this.placingType = -1;
         this.ghost.visible = false;
+        this.onAction?.({ type: 'place-building', x: tmpHit.x, z: tmpHit.z });
       } else {
         // Silence here read as "the click did nothing"; say why instead.
         this.sim.pushAlert('cannotBuild', 'Cannot deploy here', tmpHit.x, tmpHit.z);
@@ -442,6 +452,7 @@ export class PlayerController {
 
     // A structure in the selection takes the click as a rally point.
     let sawBuilding = false;
+    const rally: Array<{ ref: number; x: number; z: number }> = [];
     for (const ref of this.selected) {
       if (refKind(ref) !== KIND_BUILDING || !this.sim.buildings.valid(ref)) continue;
       const slot = refSlot(ref);
@@ -449,10 +460,12 @@ export class PlayerController {
       this.sim.buildings.rallyZ[slot] = gz;
       this.sim.buildings.hasRally[slot] = 1;
       sawBuilding = true;
+      rally.push({ ref, x: gx, z: gz });
     }
 
     const field = this.fieldAt(gx, gz);
     let ordered = false;
+    const orders: Array<{ ref: number; order: number; x: number; z: number; target: number; queued: boolean }> = [];
     for (const ref of this.selected) {
       if (refKind(ref) !== KIND_UNIT || !this.sim.units.valid(ref)) continue;
       const slot = refSlot(ref);
@@ -476,10 +489,16 @@ export class PlayerController {
 
       // Spread a group order across a formation so they do not stack on a point.
       const spread = this.formationOffset(ordered ? this.orderIndex++ : (this.orderIndex = 0));
-      this.sim.issueOrder(slot, order, gx + spread[0], gz + spread[1], orderRef, queued);
+      const x = gx + spread[0];
+      const z = gz + spread[1];
+      this.sim.issueOrder(slot, order, x, z, orderRef, queued);
+      orders.push({ ref, order, x, z, target: orderRef, queued });
       ordered = true;
     }
-    if (ordered || sawBuilding) this.markCommanded();
+    if (ordered || sawBuilding) {
+      this.onAction?.({ type: 'orders', orders, rally });
+      this.markCommanded();
+    }
   }
 
   private orderIndex = 0;
