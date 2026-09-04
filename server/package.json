@@ -1,0 +1,16 @@
+{
+  "name": "verdium-storm-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node index.mjs",
+    "test": "node --test index.test.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

@@ -13,6 +13,7 @@ import {
   isBuildingType,
   isUnitType,
 } from './Stats';
+import { clampCommandCoordinate } from './CommandBounds';
 import { KIND_BUILDING, KIND_UNIT, NO_REF, Order, Stance, refKind, refSlot } from './Entities';
 import { NAV_CELL } from './Nav';
 import type { Sim } from './Sim';
@@ -489,8 +490,8 @@ export class PlayerController {
 
       // Spread a group order across a formation so they do not stack on a point.
       const spread = this.formationOffset(ordered ? this.orderIndex++ : (this.orderIndex = 0));
-      const x = gx + spread[0];
-      const z = gz + spread[1];
+      const x = clampCommandCoordinate(gx + spread[0]);
+      const z = clampCommandCoordinate(gz + spread[1]);
       this.sim.issueOrder(slot, order, x, z, orderRef, queued);
       orders.push({ ref, order, x, z, target: orderRef, queued });
       ordered = true;

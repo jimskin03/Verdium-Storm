@@ -4,3 +4,5 @@ dist-*/
 shots/
 .vite/
 *.log
+.env*
+!.env.example
