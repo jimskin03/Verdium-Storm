@@ -145,7 +145,7 @@ export class Menu {
     const heading = div('vs-lobby-heading', this.lobbyPanel);
     heading.textContent = 'SECURE TWO-COMMANDER LINK';
     const detail = div('vs-lobby-detail', this.lobbyPanel);
-    detail.textContent = 'Open the same game address in a second browser tab or window. Share the room code and password with Commander 2.';
+    detail.textContent = 'Share this game address, room code, and password with Commander 2. They can join from another browser or device.';
 
     const columns = div('vs-lobby-columns', this.lobbyPanel);
     const create = div('vs-lobby-column', columns);
@@ -179,6 +179,8 @@ export class Menu {
     const readout = div('vs-lobby-readout', this.lobbyPanel);
     this.lobbyCode = div('vs-lobby-code', readout);
     this.lobbyStatus = div('vs-lobby-status', readout);
+    this.lobbyStatus.setAttribute('role', 'status');
+    this.lobbyStatus.setAttribute('aria-live', 'polite');
   }
 
   private lobbyInput(parent: HTMLElement, placeholder: string, autocomplete: string): HTMLInputElement {

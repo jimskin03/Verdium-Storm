@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: verdium-storm-multiplayer
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: ALLOWED_ORIGINS
+        value: https://verdiumstorm.vercel.app
+      - key: ROOM_TTL_MS
+        value: "7200000"
+      - key: HEARTBEAT_INTERVAL_MS
+        value: "30000"

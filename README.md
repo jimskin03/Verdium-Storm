@@ -20,7 +20,9 @@ Don't stop until each sub-agent is utterly wowed with the quality when compared 
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm --prefix server install
+npm run server     # multiplayer API/WebSocket server on http://localhost:8787
+npm run dev        # game client on http://localhost:5173
 ```
 
 Other scripts:
@@ -29,19 +31,34 @@ Other scripts:
 npm run build      # production build into dist/
 npm run preview    # serve the built output
 npm run typecheck  # tsc --noEmit
+npm test           # client/server multiplayer integration and protocol tests
 ```
 
 ## Two-player rooms
 
 Choose **2 Player Room** on the main menu. The host creates a room with a
 password and shares the displayed six-character room code plus that password.
-The second commander opens the same deployed game address in another browser
-tab or window, enters both values, and waits for the host to press **Deploy**.
+The second commander opens the deployed game from any supported browser or
+device, enters both values, and waits for the host to press **Deploy**.
 
-Rooms use the browser's `BroadcastChannel` transport, so they work between
-same-origin tabs/windows in the same browser profile without requiring a game
-server. The host controls GDI and the joining player controls Nod; build,
-placement, stance, stop, rally, and movement/attack commands are relayed.
+Rooms use Verdium Storm's independent HTTP/WebSocket service in `server/`.
+The server generates room codes, session capabilities, faction assignment and
+the shared match seed. Passwords are sent only to the configured HTTPS endpoint
+and stored in memory as salted scrypt verifiers. The host controls GDI and the
+joining player controls Nod; build, placement, stance, stop, rally, and
+movement/attack commands are validated, sequenced and relayed.
+
+For local development, the client automatically uses `http://localhost:8787`.
+For a deployed frontend, set the public build variable before building:
+
+```bash
+VITE_MULTIPLAYER_SERVER_URL=https://your-verdium-server.onrender.com npm run build
+```
+
+Set the server's `ALLOWED_ORIGINS` to a comma-separated list of exact frontend
+origins. A Render Blueprint is included in `render.yaml`; after creating that
+service, set `VITE_MULTIPLAYER_SERVER_URL` in Vercel and redeploy the frontend.
+See `docs/MULTIPLAYER.md` for the protocol, security model and MVP limitations.
 
 Query parameters: `?quality=low|medium|high|ultra` forces a quality tier,
 `?dpr=1` pins device pixel ratio, `?day=<minutes>` starts the day/night clock

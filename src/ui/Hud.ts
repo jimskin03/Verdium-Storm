@@ -84,6 +84,7 @@ export class Hud implements System {
   private mock: MockGame | null = null;
   private probe: WorldProbe = {};
   private unsubscribe: (() => void) | null = null;
+  private multiplayerUnsubscribe: (() => void) | null = null;
 
   private hudPhase: HudPhase = 'menu';
   private accum = 0;
@@ -192,6 +193,7 @@ export class Hud implements System {
   dispose(): void {
     window.removeEventListener('keydown', this.onKey);
     this.unsubscribe?.();
+    this.multiplayerUnsubscribe?.();
     this.root?.remove();
   }
 
@@ -335,6 +337,10 @@ export class Hud implements System {
   }
 
   private startMatch(faction: Faction, lobby: MultiplayerLobby | null = null): void {
+    this.multiplayerUnsubscribe?.();
+    this.multiplayerUnsubscribe = lobby?.subscribe((snapshot) => {
+      if (snapshot.state === 'error' && this.hudPhase === 'match') this.openMenu();
+    }) ?? null;
     const matchFaction: Faction = lobby ? (lobby.team === 0 ? 'gdi' : 'nod') : faction;
     const configurable = this.game as GameStateService & {
       configureMatch?: (selectedFaction: Faction, session: MultiplayerLobby | null) => void;
