@@ -684,7 +684,22 @@ function rejectUpgrade(socket, status, label) {
 }
 
 function isOriginAllowed(origin, allowedOrigins) {
-  return typeof origin === 'string' && allowedOrigins.has(origin);
+  if (typeof origin !== 'string') return false;
+  if (allowedOrigins.has(origin)) return true;
+  // Vercel creates a different HTTPS hostname for preview deployments. Keep
+  // those previews usable without opening the room service to arbitrary
+  // vercel.app projects or insecure origins.
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'https:' || !url.hostname.endsWith('.vercel.app')) return false;
+    const host = url.hostname.slice(0, -'.vercel.app'.length);
+    return host === 'verdiumstorm'
+      || host.startsWith('verdiumstorm-')
+      || host === 'verdium-storm'
+      || host.startsWith('verdium-storm-');
+  } catch {
+    return false;
+  }
 }
 
 function parseAllowedOrigins(value) {

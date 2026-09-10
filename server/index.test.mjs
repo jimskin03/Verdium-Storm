@@ -198,6 +198,22 @@ test('rejects weak or incorrect passwords, full rooms, malformed actions, and ba
   response.destroy();
 });
 
+test('allows this project\'s HTTPS Vercel preview origins but not other Vercel projects', async () => {
+  const preview = createVerdiumServer({
+    host: '127.0.0.1', port: 0, allowedOrigins: [], heartbeatIntervalMs: 0, roomTtlMs: 60_000,
+  });
+  await preview.listen();
+  const address = preview.address();
+  const url = `http://127.0.0.1:${address.port}/api/rooms`;
+  const request = (origin) => fetch(url, {
+    method: 'POST', headers: { origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ password: PASSWORD }),
+  });
+  assert.equal((await request('https://verdiumstorm-git-main-jimskin03.vercel.app')).status, 201);
+  assert.equal((await request('https://other-project.vercel.app')).status, 403);
+  await preview.close();
+});
+
 test('disconnect destroys the ephemeral room and notifies the remaining commander', async () => {
   const hostSession = await createRoom();
   const host = await connect(hostSession);
