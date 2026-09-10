@@ -703,7 +703,7 @@ function isOriginAllowed(origin, allowedOrigins) {
 }
 
 function parseAllowedOrigins(value) {
-  const origins = (value ?? 'http://localhost:5173,http://127.0.0.1:5173,https://verdiumstorm.vercel.app')
+  const origins = (value ?? 'http://localhost:5173,http://127.0.0.1:5173,https://verdiumstorm.cryptgregresearch.org,https://verdiumstorm.vercel.app')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);

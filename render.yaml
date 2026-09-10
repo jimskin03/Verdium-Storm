@@ -12,7 +12,7 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: ALLOWED_ORIGINS
-        value: https://verdiumstorm.vercel.app,https://verdium-storm.vercel.app
+        value: https://verdiumstorm.cryptgregresearch.org,https://verdiumstorm.vercel.app,https://verdium-storm.vercel.app
       - key: ROOM_TTL_MS
         value: "7200000"
       - key: HEARTBEAT_INTERVAL_MS

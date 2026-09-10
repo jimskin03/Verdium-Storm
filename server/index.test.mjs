@@ -214,6 +214,23 @@ test('allows this project\'s HTTPS Vercel preview origins but not other Vercel p
   await preview.close();
 });
 
+test('allows the production custom frontend origin when configured', async () => {
+  const customOrigin = 'https://verdiumstorm.cryptgregresearch.org';
+  const custom = createVerdiumServer({
+    host: '127.0.0.1', port: 0, allowedOrigins: [customOrigin], heartbeatIntervalMs: 0, roomTtlMs: 60_000,
+  });
+  await custom.listen();
+  const address = custom.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/rooms`, {
+    method: 'POST',
+    headers: { origin: customOrigin, 'content-type': 'application/json' },
+    body: JSON.stringify({ password: PASSWORD }),
+  });
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get('access-control-allow-origin'), customOrigin);
+  await custom.close();
+});
+
 test('disconnect destroys the ephemeral room and notifies the remaining commander', async () => {
   const hostSession = await createRoom();
   const host = await connect(hostSession);
