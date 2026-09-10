@@ -1,12 +1,12 @@
 # Verdium Storm — Agent-Friendly Game Plan
 
-Status: phase 1 implementation in progress
+Status: phase 1 implementation in progress; renderer-independent control plane landed
 
 Target baseline: `origin/main` at `2e3e00a`
 
 Scope: game pacing, observable event logs, a stable command/observation API, and Playwright-driven headless Chromium automation
 
-Implemented in this working tree: `deliberate` local pacing, a bounded public/team event journal, fog-safe observations, a guarded `VS_AGENT` bridge, and a deterministic Playwright smoke runner. Scheduled multiplayer command ticks and server-authoritative privacy remain the next protocol phase.
+Implemented in this working tree: `deliberate` local pacing, a bounded public/team event journal, fog-safe observations, a renderer-independent `VS_AGENT` bridge, direct agent room lifecycle controls, and a deterministic Playwright smoke runner. Scheduled multiplayer command ticks and server-authoritative privacy remain the next protocol phase.
 
 ## 1. Outcome
 
@@ -229,24 +229,66 @@ This is an API privacy boundary, not a strong anti-cheat boundary, because each 
 
 Operational server logs and gameplay journals remain separate. Production operational logs should contain room-safe identifiers, counts, latency, rejection codes, and faults, not gameplay payloads.
 
-## 8. Browser API
+## 8. Renderer-independent control plane
+
+The agent API must not depend on a successful graphics boot. `src/main.ts`
+publishes a bootstrap marker before constructing `Engine`; `?agent=1&render=none`
+selects `HeadlessAgentRuntime`, which creates only the simulation scene and
+camera. If an explicitly requested agent run encounters a WebGL startup error,
+startup falls back to the same runtime automatically.
+
+The headless runtime uses the real `Battlefield`, `Sim`, `PlayerController`,
+`MultiplayerLobby`, command validators, observations, and event journal. The
+renderer is not mocked with a fake GPU: it is absent, so accidental render
+dependencies fail in tests instead of silently becoming production behavior.
+
+The bridge now exposes these control-plane capabilities:
+
+```ts
+window.VS_AGENT = {
+  version: 2,
+  ready: true,
+  capabilities(): string[],
+  createRoom(password): Promise<LobbySnapshot>,
+  joinRoom(roomCode, password): Promise<LobbySnapshot>,
+  spectateRoom(roomCode, password): Promise<LobbySnapshot>,
+  roomStatus(): LobbySnapshot,
+  launchRoom(): boolean,
+  observe(), command(requestId, action), events(afterEventId, limit),
+  waitFor(options), start(), step(ticks),
+};
+```
+
+`tools/agent-play.mjs --render none --disableWebGL true` and the
+`agent:smoke:headless` package script exercise this path. The remaining
+multiplayer limitation is authority: the Render room service still sequences
+commands while clients run the deterministic simulation locally. Shared tick
+scheduling, state hashes, and server-side simulation are later protocol work.
+
+## 9. Browser API
 
 Expose a small versioned bridge only when agent mode is explicitly enabled:
 
 ```ts
 window.VS_AGENT = {
-  version: 1,
+  version: 2,
   ready: true,
-  observe(): Promise<AgentObservation>,
-  command(envelope: CommandEnvelope): Promise<CommandAck>,
-  events(options: { afterEventId: number; limit?: number }): Promise<GameEvent[]>,
+  capabilities(): string[],
+  createRoom(password): Promise<LobbySnapshot>,
+  joinRoom(roomCode, password): Promise<LobbySnapshot>,
+  spectateRoom(roomCode, password): Promise<LobbySnapshot>,
+  roomStatus(): LobbySnapshot,
+  launchRoom(): boolean,
+  observe(): AgentObservation,
+  command(requestId, action): CommandAck,
+  events(afterEventId?: number, limit?: number): GameEvent[],
   waitFor(options: {
     afterEventId: number;
     types?: string[];
     timeoutMs?: number;
-  }): Promise<{ events: GameEvent[]; observation?: AgentObservation }>,
-  reset(options: { seed: number; pacing: 'classic' | 'deliberate' }): Promise<void>,
-  step(options: { ticks: number }): Promise<void>,
+  }): Promise<GameEvent | null>,
+  start(): void,
+  step(ticks: number): void,
 };
 ```
 
@@ -261,7 +303,7 @@ Guardrails:
 
 Also add stable DOM semantics for browser-level testing: landmark roles, accessible names, and `data-testid` only where role/name is insufficient. The headless agent API is preferred for play; DOM automation verifies that a human can reach the same actions.
 
-## 9. Headless Chromium runner
+## 10. Headless Chromium runner
 
 Build on the repository’s existing Playwright dependency and launch flags. Add `tools/agent-play.mjs` with three modes:
 
@@ -319,7 +361,7 @@ Use a declarative scenario format for deterministic regression tests:
 
 The first runner should use in-repository scripted policies. An LLM adapter can be added later without coupling the game to a model vendor, API key, network service, or prompt format.
 
-## 10. Proposed code map
+## 11. Proposed code map
 
 New modules:
 
@@ -333,10 +375,12 @@ src/game/agent/Observation.ts          fog-safe snapshot projection
 src/game/agent/EventJournal.ts         bounded cursor-based journal
 src/game/agent/CommandGateway.ts       the only UI/AI/agent command entry
 src/game/agent/AgentBridge.ts          guarded window.VS_AGENT adapter
+src/game/agent/HeadlessAgentRuntime.ts simulation/control plane without WebGL
 src/game/sim/StateDigest.ts            canonical deterministic state hashing
 server/protocol.mjs                    wire parsing built on shared/game-protocol.mjs
 server/event-journal.mjs               room event retention and filtering
 tools/agent-play.mjs                   headless Chromium match runner
+tools/agent-multiplayer-smoke.mjs      two-browser no-WebGL room smoke test
 tests/scenarios/*.json                 deterministic agent scenarios
 tests/AgentBridge.test.ts
 tests/Observation.test.ts
@@ -360,7 +404,7 @@ Focused edits:
 | `tools/verify.mjs` | Assert the harness is absent without its gate and the agent bridge is healthy with its gate |
 | `package.json` | Add `agent:smoke` and `agent:scenario` scripts; no new runtime dependency |
 
-## 11. Delivery plan
+## 12. Delivery plan
 
 ### PR 1 — Contracts and deterministic observability
 
@@ -407,7 +451,7 @@ Exit criteria: two browser contexts apply every accepted command on the same tic
 
 Exit criteria: one command runs a complete two-agent match, returns a nonzero exit code for a protocol/privacy/determinism failure, and leaves enough evidence to reproduce it.
 
-## 12. Tests and acceptance criteria
+## 13. Tests and acceptance criteria
 
 ### Pacing
 
@@ -452,7 +496,7 @@ node tools/verify.mjs
 
 Visual work must still use the existing stable shot presets. Agent scenarios supplement the visual harness; they do not replace it.
 
-## 13. Risks and deliberate non-goals
+## 14. Risks and deliberate non-goals
 
 ### Risks
 
@@ -471,7 +515,7 @@ Visual work must still use the existing stable shot presets. Agent scenarios sup
 - Exposing arbitrary JavaScript evaluation to agents.
 - Recording model reasoning or chain-of-thought.
 
-## 14. Decisions requested
+## 15. Decisions requested
 
 Before implementation, confirm these product choices:
 

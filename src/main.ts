@@ -5,7 +5,8 @@ import { Atmosphere } from '@/engine/Atmosphere';
 import { Terrain } from '@/world/Terrain';
 import { CameraRig } from '@/game/CameraRig';
 import { SHOT_PRESETS, type ShotPresetName } from '@/game/ShotPresets';
-import { installAgentBridge } from '@/game/agent/AgentBridge';
+import { installAgentBootstrap, installAgentBridge } from '@/game/agent/AgentBridge';
+import { HeadlessAgentRuntime } from '@/game/agent/HeadlessAgentRuntime';
 
 const viewport = document.getElementById('viewport')!;
 const uiRoot = document.getElementById('ui-root')!;
@@ -14,6 +15,28 @@ const bootBar = document.getElementById('boot-bar')!;
 const bootStatus = document.getElementById('boot-status')!;
 
 async function main(): Promise<void> {
+  installAgentBootstrap();
+
+  if (headlessAgentRequested()) {
+    startHeadlessAgent();
+    return;
+  }
+
+  try {
+    await startVisualGame();
+  } catch (err) {
+    // A renderer failure must not remove the control plane. Agent runs can
+    // continue through the simulation-only runtime even when WebGL is absent.
+    if (agentRequested()) {
+      console.warn('[VerdiumStorm] WebGL startup failed; switching to headless agent runtime.', err);
+      startHeadlessAgent();
+      return;
+    }
+    throw err;
+  }
+}
+
+async function startVisualGame(): Promise<void> {
   const quality = createQuality();
   const engine = new Engine(viewport, uiRoot, quality);
 
@@ -26,6 +49,9 @@ async function main(): Promise<void> {
   // Optional systems are loaded dynamically so a failure in one subsystem
   // degrades that feature instead of blanking the whole game.
   await loadOptionalSystems(engine);
+  if (agentRequested() && !engine.get('battlefield')) {
+    throw new Error('Battlefield simulation failed to load for agent mode');
+  }
 
   await engine.initSystems((name, index, total) => {
     bootStatus.textContent = name.replace(/([A-Z])/g, ' $1').trim();
@@ -46,6 +72,24 @@ async function main(): Promise<void> {
 
   if (new URLSearchParams(location.search).has('harness')) exposeHarness(engine, cameraRig);
   installAgentBridge(engine);
+}
+
+function agentRequested(): boolean {
+  const params = new URLSearchParams(location.search);
+  return params.get('agent') === '1' || params.get('headless') === '1';
+}
+
+function headlessAgentRequested(): boolean {
+  const params = new URLSearchParams(location.search);
+  return agentRequested() && (params.get('render') === 'none' || params.get('headless') === '1');
+}
+
+function startHeadlessAgent(): void {
+  const runtime = new HeadlessAgentRuntime(viewport, uiRoot);
+  installAgentBridge(runtime);
+  bootBar.style.width = '100%';
+  bootStatus.textContent = 'agent control plane ready';
+  boot.classList.add('hidden');
 }
 
 /**

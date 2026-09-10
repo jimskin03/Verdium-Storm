@@ -1,5 +1,5 @@
 import type { BuildableId, EconomySnapshot } from '@/game/GameState';
-import type { MultiplayerAction } from '@/game/Multiplayer';
+import type { LobbySnapshot, MultiplayerAction } from '@/game/Multiplayer';
 import type { GameEvent } from './EventJournal';
 import type { PacingId } from './Pacing';
 
@@ -167,12 +167,18 @@ export interface WaitForOptions {
 }
 
 export interface AgentBridgeApi {
-  version: 1;
+  version: 2;
   ready: boolean;
+  capabilities: () => string[];
   observe: () => AgentObservation;
   command: (requestId: string, action: AgentCommand) => CommandAck;
   events: (afterEventId?: number, limit?: number) => GameEvent[];
   waitFor: (options?: WaitForOptions) => Promise<GameEvent | null>;
+  createRoom: (password: string) => Promise<LobbySnapshot>;
+  joinRoom: (roomCode: string, password: string) => Promise<LobbySnapshot>;
+  spectateRoom: (roomCode: string, password: string) => Promise<LobbySnapshot>;
+  roomStatus: () => LobbySnapshot;
+  launchRoom: () => boolean;
   getSpectatorInfo: () => SpectatorInfo;
   start: () => void;
   step: (ticks: number) => void;
@@ -185,6 +191,11 @@ export interface AgentControlService {
   agentStart(): void;
   agentFrameDt(): number;
   agentStep(ticks: number): void;
+  agentCreateRoom(password: string): Promise<LobbySnapshot>;
+  agentJoinRoom(roomCode: string, password: string): Promise<LobbySnapshot>;
+  agentSpectateRoom(roomCode: string, password: string): Promise<LobbySnapshot>;
+  agentRoomStatus(): LobbySnapshot;
+  agentLaunchRoom(): boolean;
   getSpectatorInfo(): SpectatorInfo;
   onJournalEvent(listener: (event: GameEvent) => void): () => void;
 }

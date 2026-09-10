@@ -32,6 +32,7 @@ npm run build      # production build into dist/
 npm run preview    # serve the built output
 npm run typecheck  # tsc --noEmit
 npm test           # client/server multiplayer integration and protocol tests
+npm run agent:smoke:headless  # renderer-independent control-plane smoke test
 ```
 
 ## Two-player rooms
@@ -63,7 +64,34 @@ See `docs/MULTIPLAYER.md` for the protocol, security model and MVP limitations.
 Query parameters: `?quality=low|medium|high|ultra` forces a quality tier,
 `?dpr=1` pins device pixel ratio, `?day=<minutes>` starts the day/night clock
 (frozen by default so screenshots stay comparable), `?tod=0..1` sets time of day
-directly, and `?harness=1` exposes the automation surface.
+directly, `?harness=1` exposes the visual automation surface, and
+`?agent=1&render=none` starts the simulation-only agent runtime without
+constructing a WebGL renderer. `?headless=1` is an equivalent shorthand.
+
+## Renderer-independent agent control
+
+Agent runs expose `window.VS_AGENT` as a stable control-plane API. The bridge is
+marked during startup before WebGL is touched, so an agent can distinguish
+"still booting" from "renderer unavailable". In headless mode the same
+simulation and command validation run with Three.js scene objects only; no
+canvas, GPU context, shader compilation, terrain renderer, or audio is needed.
+
+```js
+const agent = window.VS_AGENT;
+agent.capabilities();
+await agent.createRoom('eight-byte-passphrase');
+agent.roomStatus();
+agent.launchRoom();
+agent.observe();
+agent.command('request-1', { type: 'move', ref: 65537, x: 24, z: -12 });
+await agent.waitFor({ types: ['command_accepted'], timeoutMs: 15000 });
+```
+
+`createRoom`, `joinRoom`, `spectateRoom`, `launchRoom`, `observe`, `command`,
+`events`, and `waitFor` all use the supported simulation/control interfaces;
+they do not expose the engine, renderer, entity stores, or arbitrary evaluation.
+The browser smoke test deliberately disables WebGL when run through
+`agent:smoke:headless`.
 
 ## What is here
 

@@ -15,7 +15,7 @@ import type {
 import { Sim, UNIT_CAP } from '@/game/sim/Sim';
 import { Commander, DEFAULT_CONFIG } from '@/game/sim/Ai';
 import { PlayerController } from '@/game/sim/Commands';
-import { MultiplayerLobby, type MultiplayerAction } from '@/game/Multiplayer';
+import { MultiplayerLobby, type LobbySnapshot, type MultiplayerAction } from '@/game/Multiplayer';
 import { Order, Stance, refSlot } from '@/game/sim/Entities';
 import {
   BUILDING_ID,
@@ -165,7 +165,12 @@ export class Battlefield implements System, GameStateService, AgentControlServic
     this.context = ctx;
     this.camera = ctx.camera;
     const search = typeof location !== 'undefined' ? location.search : '';
-    this.pacing = pacingFrom(new URLSearchParams(search).get('pacing'));
+    const params = new URLSearchParams(search);
+    const requestedPacing = params.get('pacing')
+      ?? (params.get('headless') === '1' || (params.get('agent') === '1' && params.get('render') === 'none')
+        ? 'deliberate'
+        : null);
+    this.pacing = pacingFrom(requestedPacing);
     this.resetMatch(PLAYER_FACTION, null);
     provide('game', this);
   }
@@ -1100,7 +1105,7 @@ export class Battlefield implements System, GameStateService, AgentControlServic
         if (!this.sim.units.valid(ref)) return { code: 'ENTITY_NOT_FOUND', message: `Unit ${ref} not found or dead` };
         const slot = refSlot(ref);
         if (this.sim.units.team[slot] !== team) return { code: 'ENTITY_NOT_OWNED', message: `Unit ${ref} belongs to opponent` };
-        orders.push({ ref, order: orderCode, x: action.x, z: action.z, target: -1, queued: !!action.queued });
+        orders.push({ ref, order: orderCode, x: action.x, z: action.z, target: 0, queued: !!action.queued });
       }
       return { action: { type: 'orders', orders, rally: [] } };
     }
@@ -1152,7 +1157,7 @@ export class Battlefield implements System, GameStateService, AgentControlServic
       if (orderCode === undefined) {
         return { code: 'INVALID_ARGUMENT', message: `Unknown order type "${String(action.order)}"` };
       }
-      const target = parseRef(action.target) ?? -1;
+      const target = parseRef(action.target) ?? 0;
       const x = typeof action.x === 'number' ? action.x : 0;
       const z = typeof action.z === 'number' ? action.z : 0;
       const orders = [];
@@ -1195,7 +1200,7 @@ export class Battlefield implements System, GameStateService, AgentControlServic
 
         let orderCode = typeof oObj.order === 'number' ? oObj.order : 0;
         if (typeof oObj.order === 'string') orderCode = ORDER_BY_NAME[oObj.order.toLowerCase()] ?? 0;
-        const target = parseRef(oObj.target) ?? -1;
+        const target = parseRef(oObj.target) ?? 0;
         const x = typeof oObj.x === 'number' ? oObj.x : 0;
         const z = typeof oObj.z === 'number' ? oObj.z : 0;
         const queued = Boolean(oObj.queued);
@@ -1213,6 +1218,49 @@ export class Battlefield implements System, GameStateService, AgentControlServic
 
   agentEvents(afterEventId = 0, limit = 200): GameEvent[] {
     return this.journal.read(this.team, afterEventId, limit);
+  }
+
+  async agentCreateRoom(password: string): Promise<LobbySnapshot> {
+    this.multiplayer?.close();
+    const lobby = new MultiplayerLobby();
+    const connected = await lobby.create(password);
+    if (!connected) return lobby.snapshot();
+    this.configureMatch(this.playerFaction, lobby);
+    return lobby.snapshot();
+  }
+
+  async agentJoinRoom(roomCode: string, password: string): Promise<LobbySnapshot> {
+    this.multiplayer?.close();
+    const lobby = new MultiplayerLobby();
+    const connected = await lobby.join(roomCode, password);
+    if (!connected) return lobby.snapshot();
+    this.configureMatch(this.playerFaction, lobby);
+    return lobby.snapshot();
+  }
+
+  async agentSpectateRoom(roomCode: string, password: string): Promise<LobbySnapshot> {
+    this.multiplayer?.close();
+    const lobby = new MultiplayerLobby();
+    const connected = await lobby.spectate(roomCode, password);
+    if (!connected) return lobby.snapshot();
+    this.configureMatch(this.playerFaction, lobby);
+    return lobby.snapshot();
+  }
+
+  agentRoomStatus(): LobbySnapshot {
+    return this.multiplayer?.snapshot() ?? {
+      state: 'idle',
+      roomCode: '',
+      isHost: false,
+      isSpectator: false,
+      passcode: '',
+      team: 0,
+      message: 'No multiplayer room is connected.',
+    };
+  }
+
+  agentLaunchRoom(): boolean {
+    return this.multiplayer?.launch() ?? false;
   }
 
   agentStart(): void {

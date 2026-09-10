@@ -67,7 +67,9 @@ describe('VS_AGENT Bridge', () => {
     const agent = (globalThis as unknown as { VS_AGENT?: AgentBridgeApi }).VS_AGENT;
     expect(agent).toBeDefined();
     expect(agent?.ready).toBe(true);
-    expect(agent?.version).toBe(1);
+    expect(agent?.version).toBe(2);
+    expect(agent?.capabilities()).toContain('createRoom');
+    expect(agent?.capabilities()).toContain('joinRoom');
     expect(typeof agent?.observe).toBe('function');
     expect(typeof agent?.command).toBe('function');
     expect(typeof agent?.events).toBe('function');

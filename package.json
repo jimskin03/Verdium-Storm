@@ -14,7 +14,9 @@
     "test:server": "npm --prefix server test",
     "shoot": "node tools/shoot.mjs",
     "agent:build": "vite build --mode agent --outDir dist-agent",
-    "agent:smoke": "node tools/agent-play.mjs"
+    "agent:smoke": "node tools/agent-play.mjs",
+    "agent:smoke:headless": "node tools/agent-play.mjs --render none --disableWebGL true",
+    "agent:smoke:multiplayer": "node tools/agent-multiplayer-smoke.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

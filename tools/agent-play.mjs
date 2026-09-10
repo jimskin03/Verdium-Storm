@@ -7,8 +7,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const args = { url: null, ticks: 180, pacing: 'deliberate' };
-for (let i = 2; i < process.argv.length; i++) { const key = process.argv[i].replace(/^--/, ''); const value = process.argv[++i]; if (value !== undefined && key in args) args[key] = key === 'ticks' ? Number(value) : value; }
+const args = { url: null, ticks: 180, pacing: 'deliberate', render: 'auto', disableWebGL: false };
+for (let i = 2; i < process.argv.length; i++) {
+  const key = process.argv[i].replace(/^--/, '');
+  const value = process.argv[++i];
+  if (value === undefined || !(key in args)) continue;
+  args[key] = key === 'ticks' ? Number(value) : key === 'disableWebGL' ? value !== 'false' : value;
+}
 const chrome = [
   process.env.CHROME_PATH,
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
@@ -45,12 +50,17 @@ async function preview() {
 let server;
 try {
   server = args.url ? null : await preview();
-  const browser = await chromium.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--mute-audio'] });
+  const browserArgs = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--mute-audio'];
+  if (args.disableWebGL || args.render === 'none') browserArgs.push('--disable-gpu', '--disable-webgl', '--disable-webgl2');
+  const browser = await chromium.launch({ executablePath: chrome, headless: true, args: browserArgs });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto(`${args.url ?? server.url}/?agent=1&pacing=${args.pacing}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  const renderParam = args.render === 'none' ? '&render=none' : '';
+  await page.goto(`${args.url ?? server.url}/?agent=1&pacing=${args.pacing}${renderParam}`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
   await page.waitForFunction(() => window.VS_AGENT?.ready === true, null, { timeout: 120_000 });
+  const capabilities = await page.evaluate(() => window.VS_AGENT.capabilities());
+  if (!capabilities.includes('createRoom') || !capabilities.includes('joinRoom')) throw new Error('control-plane room capabilities missing');
   await page.evaluate(() => window.VS_AGENT.start());
   const before = await page.evaluate(() => window.VS_AGENT.observe());
   await page.evaluate((ticks) => window.VS_AGENT.step(ticks), args.ticks);
@@ -58,7 +68,7 @@ try {
   const events = await page.evaluate(() => window.VS_AGENT.events(0, 20));
   if (after.tick <= before.tick) throw new Error(`simulation did not advance (${before.tick} -> ${after.tick})`);
   if (errors.length) throw new Error(errors.join('; '));
-  process.stdout.write(JSON.stringify({ beforeTick: before.tick, afterTick: after.tick, own: after.own.length, visibleEnemies: after.visibleEnemies.length, events: events.map((event) => event.type) }, null, 2) + '\n');
+  process.stdout.write(JSON.stringify({ beforeTick: before.tick, afterTick: after.tick, own: after.own.length, visibleEnemies: after.visibleEnemies.length, events: events.map((event) => event.type), capabilities }, null, 2) + '\n');
   await browser.close();
 } finally {
   if (server) server.child.kill('SIGTERM');
