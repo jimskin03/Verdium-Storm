@@ -6,6 +6,9 @@ import { resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 
 export const PROTOCOL_VERSION = 1;
+const BUILTIN_FRONTEND_ORIGINS = new Set([
+  'https://verdiumstorm.cryptgregresearch.org',
+]);
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const ROOM_CODE_LENGTH = 6;
 const MIN_PASSWORD_BYTES = 8;
@@ -685,6 +688,9 @@ function rejectUpgrade(socket, status, label) {
 
 function isOriginAllowed(origin, allowedOrigins) {
   if (typeof origin !== 'string') return false;
+  // Keep the canonical first-party frontend usable even when a Render
+  // dashboard environment variable predates the current Blueprint config.
+  if (BUILTIN_FRONTEND_ORIGINS.has(origin)) return true;
   if (allowedOrigins.has(origin)) return true;
   // Vercel creates a different HTTPS hostname for preview deployments. Keep
   // those previews usable without opening the room service to arbitrary

@@ -214,10 +214,10 @@ test('allows this project\'s HTTPS Vercel preview origins but not other Vercel p
   await preview.close();
 });
 
-test('allows the production custom frontend origin when configured', async () => {
+test('allows the canonical custom frontend even if the deployed env list is stale', async () => {
   const customOrigin = 'https://verdiumstorm.cryptgregresearch.org';
   const custom = createVerdiumServer({
-    host: '127.0.0.1', port: 0, allowedOrigins: [customOrigin], heartbeatIntervalMs: 0, roomTtlMs: 60_000,
+    host: '127.0.0.1', port: 0, allowedOrigins: [], heartbeatIntervalMs: 0, roomTtlMs: 60_000,
   });
   await custom.listen();
   const address = custom.address();
