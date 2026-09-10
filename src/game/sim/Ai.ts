@@ -47,6 +47,11 @@ export interface CommanderConfig {
   harvestersPerRefinery: number;
   /** Upper bound on structures it will attempt, so it does not sprawl forever. */
   maxStructures: number;
+  /** Match pacing gates, expressed in simulation ticks. */
+  openingPeaceTicks?: number;
+  thinkTicks?: number;
+  minimumWaveTicks?: number;
+  regroupTicks?: number;
 }
 
 export const DEFAULT_CONFIG: CommanderConfig = {
@@ -107,7 +112,7 @@ export class Commander {
   ) {
     this.rng = makeRng(seed >>> 0);
     // Stagger the two commanders half a think apart.
-    this.think = team * THINK_PERIOD * 0.5;
+    this.think = team * this.thinkPeriod * 0.5;
     const me = sim.teams[team];
     const foe = sim.teams[1 - team];
     this.stageX = me.baseX + (foe.baseX - me.baseX) * 0.3;
@@ -133,7 +138,7 @@ export class Commander {
 
     this.think -= dt;
     if (this.think > 0) return;
-    this.think += THINK_PERIOD;
+    this.think += this.thinkPeriod;
     if (!this.active) return;
 
     this.census();
@@ -600,6 +605,8 @@ export class Commander {
    * ground down — at which point the survivors fall back and rebuild.
    */
   private updateWave(): void {
+    if (this.sim.tickCount < (this.config.openingPeaceTicks ?? 0)) return;
+    if (!this.waveActive && this.sim.tickCount < (this.config.minimumWaveTicks ?? 0)) return;
     const threshold = (2400 + this.waveCount * 850) / this.config.aggression;
     if (!this.waveActive) {
       if (this.armyValue >= threshold && this.waveTimer <= 0) {
@@ -612,7 +619,7 @@ export class Commander {
     if (this.armyValue < threshold * 0.3 || this.armyCount < 4) {
       // Broken push: regroup rather than feed reinforcements in one at a time.
       this.waveActive = false;
-      this.waveTimer = 22;
+      this.waveTimer = (this.config.regroupTicks ?? 660) / 30;
       this.orderTimer.fill(0);
       return;
     }
@@ -620,6 +627,8 @@ export class Commander {
     // on the first wall it flattened.
     if (this.sim.tickCount % 90 === 0) this.pickAttackTarget();
   }
+
+  private get thinkPeriod(): number { return (this.config.thinkTicks ?? 8) / 30; }
 
   private pickAttackTarget(): void {
     const foe = this.sim.teams[1 - this.team];

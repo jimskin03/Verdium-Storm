@@ -12,7 +12,9 @@
     "test": "npm run test:client && npm run test:server",
     "test:client": "vitest run tests",
     "test:server": "npm --prefix server test",
-    "shoot": "node tools/shoot.mjs"
+    "shoot": "node tools/shoot.mjs",
+    "agent:build": "vite build --mode agent --outDir dist-agent",
+    "agent:smoke": "node tools/agent-play.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

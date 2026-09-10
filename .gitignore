@@ -6,3 +6,4 @@ shots/
 *.log
 .env*
 !.env.example
+!.env.agent

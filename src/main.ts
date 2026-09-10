@@ -5,6 +5,7 @@ import { Atmosphere } from '@/engine/Atmosphere';
 import { Terrain } from '@/world/Terrain';
 import { CameraRig } from '@/game/CameraRig';
 import { SHOT_PRESETS, type ShotPresetName } from '@/game/ShotPresets';
+import { installAgentBridge } from '@/game/agent/AgentBridge';
 
 const viewport = document.getElementById('viewport')!;
 const uiRoot = document.getElementById('ui-root')!;
@@ -43,7 +44,8 @@ async function main(): Promise<void> {
 
   setTimeout(() => boot.classList.add('hidden'), 120);
 
-  exposeHarness(engine, cameraRig);
+  if (new URLSearchParams(location.search).has('harness')) exposeHarness(engine, cameraRig);
+  installAgentBridge(engine);
 }
 
 /**

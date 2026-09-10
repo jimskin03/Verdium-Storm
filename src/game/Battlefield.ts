@@ -29,6 +29,9 @@ import {
   isUnitType,
 } from '@/game/sim/Stats';
 import { NAV_CELL } from '@/game/sim/Nav';
+import { EventJournal } from '@/game/agent/EventJournal';
+import { PACING, pacingFrom, type PacingProfile } from '@/game/agent/Pacing';
+import type { AgentCommand, AgentControlService, AgentObservation, CommandAck, ObservedEntity } from '@/game/agent/AgentTypes';
 
 /**
  * The match. Owns the simulation, the two commanders and the player's input
@@ -48,7 +51,7 @@ const PLAYER_FACTION: Faction = 'gdi';
 const ENEMY_FACTION: Faction = 'nod';
 const MATCH_SEED = 0x5eed_0731;
 
-export class Battlefield implements System, GameStateService {
+export class Battlefield implements System, GameStateService, AgentControlService {
   readonly name = 'battlefield';
   readonly phase = Phase.SIMULATION;
 
@@ -63,6 +66,9 @@ export class Battlefield implements System, GameStateService {
   private remoteActions: MultiplayerAction[] = [];
   private playerTeam: Team = PLAYER_TEAM;
   private playerFaction: Faction = PLAYER_FACTION;
+  private pacing: PacingProfile = PACING.classic;
+  private journal = new EventJournal();
+  private loggedAlerts = new WeakSet<Alert>();
 
   private listeners: Array<() => void> = [];
   private signature = '';
@@ -84,6 +90,7 @@ export class Battlefield implements System, GameStateService {
   init(ctx: EngineContext): void {
     this.context = ctx;
     this.camera = ctx.camera;
+    this.pacing = pacingFrom(new URLSearchParams(location.search).get('pacing'));
     this.resetMatch(PLAYER_FACTION, null);
     provide('game', this);
   }
@@ -92,10 +99,16 @@ export class Battlefield implements System, GameStateService {
     if (!this.started) return;
     this.applyRemoteActions();
     this.player.update(dt);
+    const simDt = dt * this.pacing.simulationRate;
     if (!this.sim.paused) {
-      for (const c of this.commanders) c.update(dt);
+      for (const c of this.commanders) c.update(simDt);
     }
-    this.sim.update(dt, this.camera);
+    this.sim.update(simDt, this.camera);
+    for (const alert of this.sim.alerts) {
+      if (this.loggedAlerts.has(alert)) continue;
+      this.loggedAlerts.add(alert);
+      this.journal.append(this.sim.tickCount, 'alert', 'team', { kind: alert.kind, message: alert.message, ...(alert.position ? { x: Math.round(alert.position.x), z: Math.round(alert.position.z) } : {}) }, this.team);
+    }
     this.refresh();
   }
 
@@ -361,6 +374,7 @@ export class Battlefield implements System, GameStateService {
       enemyFaction,
       seed,
       autoPlayer: lobby === null,
+      pacing: this.pacing,
     });
     this.sim.build();
 
@@ -372,9 +386,10 @@ export class Battlefield implements System, GameStateService {
       this.commanders = [];
       this.multiplayerUnsubscribe = lobby.onAction((action) => this.remoteActions.push(action));
     } else {
+      const pacedAi = { ...DEFAULT_CONFIG, openingPeaceTicks: this.pacing.openingPeaceTicks, thinkTicks: this.pacing.commanderThinkTicks, minimumWaveTicks: this.pacing.minimumWaveTicks, regroupTicks: this.pacing.regroupTicks };
       this.commanders = [
-        new Commander(this.sim, 0, seed ^ 0x11, DEFAULT_CONFIG),
-        new Commander(this.sim, 1, seed ^ 0x22, { ...DEFAULT_CONFIG, aggression: 1.15 }),
+        new Commander(this.sim, 0, seed ^ 0x11, pacedAi),
+        new Commander(this.sim, 1, seed ^ 0x22, { ...pacedAi, aggression: 1.15 }),
       ];
       // A human taking control releases their own commander but not the enemy's.
       this.player.onFirstCommand = () => this.commanders[this.team]?.release();
@@ -385,24 +400,113 @@ export class Battlefield implements System, GameStateService {
     if (this.context.quality.tier === 'low') this.sim.fog.setEnabled(false);
 
     this.remoteActions.length = 0;
+    this.journal = new EventJournal();
+    this.loggedAlerts = new WeakSet<Alert>();
+    this.journal.append(this.sim.tickCount, 'match_started', 'public', { pacing: this.pacing.id, team: this.team });
     this.started = true;
     this.signature = '';
     this.refresh();
   }
 
-  private queueBuildFor(team: Team, id: BuildableId): void {
-    if (isUnitType(id)) this.sim.queueUnit(team, UNIT_ID[id]);
-    else if (isBuildingType(id)) this.sim.queueBuilding(team, BUILDING_ID[id]);
+  private queueBuildFor(team: Team, id: BuildableId): boolean {
+    if (isUnitType(id)) return this.sim.queueUnit(team, UNIT_ID[id]);
+    if (isBuildingType(id)) return this.sim.queueBuilding(team, BUILDING_ID[id]);
+    return false;
   }
 
-  private cancelBuildFor(team: Team, id: BuildableId): void {
-    if (isUnitType(id)) this.sim.cancelUnit(team, UNIT_ID[id]);
-    else if (isBuildingType(id)) this.sim.cancelBuilding(team, BUILDING_ID[id]);
+  private cancelBuildFor(team: Team, id: BuildableId): boolean {
+    if (isUnitType(id)) return this.sim.cancelUnit(team, UNIT_ID[id]);
+    if (isBuildingType(id)) return this.sim.cancelBuilding(team, BUILDING_ID[id]);
+    return false;
   }
 
   /** Replays received commands as the opposing team without touching local UI selection. */
   private applyRemoteActions(): void {
     if (!this.multiplayer || this.remoteActions.length === 0) return;
+    const team: Team = this.team === 0 ? 1 : 0;
+    const actions = this.remoteActions.splice(0);
+    for (const action of actions) {
+      const applied = this.applyActionForTeam(team, action);
+      this.journal.append(this.sim.tickCount, applied ? 'command_applied' : 'command_rejected', 'public', { action: action.type, team, remote: true });
+    }
+  }
+
+  private applyActionForTeam(team: Team, action: AgentCommand): boolean {
+    if (action.type === 'queue-build') {
+      return this.queueBuildFor(team, action.id);
+    } else if (action.type === 'cancel-build') {
+      return this.cancelBuildFor(team, action.id);
+    } else if (action.type === 'place-building') {
+      return this.sim.placeReadyBuilding(team, action.x, action.z);
+    } else if (action.type === 'stance') {
+      for (const ref of action.refs) {
+        if (!this.sim.units.valid(ref)) continue;
+        const slot = refSlot(ref);
+        if (this.sim.units.team[slot] === team) this.sim.setStance(slot, action.stance);
+      }
+      return true;
+    } else if (action.type === 'stop') {
+      for (const ref of action.refs) {
+        if (!this.sim.units.valid(ref)) continue;
+        const slot = refSlot(ref);
+        if (this.sim.units.team[slot] !== team) continue;
+        this.sim.units.clearOrders(slot);
+        this.sim.units.hasGoal[slot] = 0;
+      }
+      return true;
+    } else if (action.type === 'orders') {
+      for (const rally of action.rally) {
+        if (!this.sim.buildings.valid(rally.ref)) continue;
+        const slot = refSlot(rally.ref);
+        if (this.sim.buildings.team[slot] !== team) continue;
+        this.sim.buildings.rallyX[slot] = rally.x;
+        this.sim.buildings.rallyZ[slot] = rally.z;
+        this.sim.buildings.hasRally[slot] = 1;
+      }
+      for (const order of action.orders) {
+        if (!this.sim.units.valid(order.ref)) continue;
+        const slot = refSlot(order.ref);
+        if (this.sim.units.team[slot] === team) this.sim.issueOrder(slot, order.order, order.x, order.z, order.target, order.queued);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  agentObserve(): AgentObservation {
+    const own: ObservedEntity[] = [];
+    const visibleEnemies: ObservedEntity[] = [];
+    const add = (id: number, team: Team, kind: 'unit' | 'building', type: string, x: number, z: number, hp: number, maxHp: number): void => {
+      const item = { id: `${kind}:${id >>> 0}`, team, kind, type, x: Math.round(x * 2) / 2, z: Math.round(z * 2) / 2, hp: Math.round(hp), maxHp: Math.round(maxHp) };
+      (team === this.team ? own : visibleEnemies).push(item);
+    };
+    const u = this.sim.units; u.refreshLive();
+    for (let n = 0; n < u.liveCount; n++) { const i = u.live[n]; if (u.team[i] === this.team || this.sim.fog.isVisible(this.team, u.px[i], u.pz[i])) add(u.ref(i), u.team[i] as Team, 'unit', UNIT_LIST[u.type[i]].type, u.px[i], u.pz[i], u.hp[i], u.maxHp[i]); }
+    const b = this.sim.buildings; b.refreshLive();
+    for (let n = 0; n < b.liveCount; n++) { const i = b.live[n]; if (b.team[i] === this.team || this.sim.fog.isVisible(this.team, b.px[i], b.pz[i])) add(b.ref(i), b.team[i] as Team, 'building', BUILDING_LIST[b.type[i]].type, b.px[i], b.pz[i], b.hp[i], b.maxHp[i]); }
+    return { schemaVersion: 1, team: this.team, tick: this.sim.tickCount, pacing: this.pacing.id, economy: { ...this.economySnapshot }, own, visibleEnemies, lastEventId: this.journal.lastEventId };
+  }
+
+  agentCommand(requestId: string, action: AgentCommand): CommandAck {
+    if (!this.started || !/^[A-Za-z0-9_-]{1,64}$/.test(requestId)) return { requestId, status: 'rejected', code: 'REQUEST_INVALID', tick: this.sim?.tickCount ?? 0 };
+    let ok = false;
+    try { ok = !!action && typeof action === 'object' && typeof action.type === 'string' && this.applyActionForTeam(this.team, action); } catch { ok = false; }
+    const ack: CommandAck = ok ? { requestId, status: 'accepted', tick: this.sim.tickCount } : { requestId, status: 'rejected', code: 'COMMAND_REJECTED', tick: this.sim.tickCount };
+    this.journal.append(this.sim.tickCount, ok ? 'command_accepted' : 'command_rejected', 'team', { requestId, action: action.type, ...(ok ? {} : { code: 'COMMAND_REJECTED' }) }, this.team, requestId);
+    if (ok) {
+      this.journal.append(this.sim.tickCount, 'command_applied', 'public', { action: action.type, team: this.team }, undefined, requestId);
+      this.multiplayer?.sendAction(action);
+    }
+    return ack;
+  }
+
+  agentEvents(afterEventId = 0, limit = 200) { return this.journal.read(this.team, afterEventId, limit); }
+  agentStart(): void { this.setPaused(false); }
+  agentFrameDt(): number { return 1 / (30 * this.pacing.simulationRate); }
+  agentStep(_ticks: number): void { /* installed bridge owns engine stepping */ }
+
+  /* Replays received commands as the opposing team without touching local UI selection. */
+  private applyRemoteActionsLegacy(): void {
     const team: Team = this.team === 0 ? 1 : 0;
     const actions = this.remoteActions.splice(0);
     for (const action of actions) {

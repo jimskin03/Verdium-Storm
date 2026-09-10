@@ -58,6 +58,7 @@ import { FogOfWar } from './Fog';
 import { SimVfx } from './Vfx';
 import { PlaceholderCatalog } from './Rigs';
 import { ResourceMap, TeamState } from './Economy';
+import type { PacingProfile } from '@/game/agent/Pacing';
 
 export const SIM_STEP = 1 / 30;
 export const UNIT_CAP = 110;
@@ -81,6 +82,7 @@ export interface SimOptions {
   seed: number;
   /** Runs a commander for the human team too, so the match plays itself. */
   autoPlayer: boolean;
+  pacing: PacingProfile;
 }
 
 interface Corpse {
@@ -322,6 +324,11 @@ export class Sim {
   private seedMatch(): void {
     this.seedBase(0, this.teams[0].baseX, this.teams[0].baseZ, 1);
     this.seedBase(1, this.teams[1].baseX, this.teams[1].baseZ, -1);
+    if (this.options.pacing.startingForce === 'opening') {
+      this.teams[0].credits = 2600;
+      this.teams[1].credits = 2600;
+      return;
+    }
     // Two forward battle groups so a match is already in contact at the choke.
     this.seedGroup(0, -62, -62, 1);
     this.seedGroup(1, 62, 62, -1);
@@ -330,6 +337,17 @@ export class Sim {
   }
 
   private seedBase(team: number, cx: number, cz: number, s: number): void {
+    if (this.options.pacing.startingForce === 'opening') {
+      const layout: Array<[BuildingType, number, number]> = [['hq', 0, 0], ['power', -28, -8], ['refinery', 24, -16], ['barracks', 2, 28]];
+      for (const [type, ox, oz] of layout) {
+        const id = BUILDING_ID[type]; const spot = this.findPlacement(BUILDING_LIST[id].footprint, cx + ox * s, cz + oz * s, 60);
+        if (spot) this.spawnBuilding(id, team, spot[0], spot[1], true);
+      }
+      const roster: Array<[UnitType, number]> = [['harvester', 1], ['rifleman', 4], ['scout', 1]];
+      let ring = 0;
+      for (const [type, count] of roster) for (let i = 0; i < count; i++) { const a = ring++ * 0.9; const p = this.freeSpot(cx + Math.cos(a) * 42 * s, cz + Math.sin(a) * 42 * s); this.spawnUnit(UNIT_ID[type], team, p[0], p[1], Math.atan2(-s, -s)); }
+      return;
+    }
     const layout: Array<[BuildingType, number, number]> = [
       ['hq', 0, 0],
       // Three plants, not two: the rest of this layout draws 137 power, so two
