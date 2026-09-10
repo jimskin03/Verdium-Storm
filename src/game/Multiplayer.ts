@@ -71,6 +71,7 @@ const PROTOCOL_VERSION = 1;
 const PASSWORD_MIN_BYTES = 8;
 const PASSWORD_MAX_BYTES = 64;
 const SOCKET_OPEN = 1;
+const PRODUCTION_SERVER_URL = 'https://verdium-storm.onrender.com';
 
 /**
  * A two-commander lobby backed by Verdium's independent room server. HTTP owns
@@ -257,26 +258,32 @@ export class MultiplayerLobby {
   }
 
   private async roomRequest(path: string, password: string, signal: AbortSignal): Promise<SessionResponse | null> {
-    try {
-      const response = await this.fetchImpl!(`${this.serverUrl}${path}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ password }),
-        signal,
-      });
-      const body = await response.json() as Partial<SessionResponse> & { message?: string };
-      if (!response.ok) {
-        this.setState('error', body.message ?? 'Unable to reach the multiplayer room.');
-        return null;
-      }
-      if (!validSession(body)) throw new Error('Room server returned an invalid session');
-      return body;
-    } catch (error) {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
       if (signal.aborted) return null;
-      console.warn('Verdium multiplayer room request failed:', safeErrorMessage(error));
-      this.setState('error', 'Unable to reach the Verdium multiplayer server. It may be waking up; try again shortly.');
-      return null;
+      try {
+        const response = await this.fetchImpl!(`${this.serverUrl}${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ password }),
+          signal,
+        });
+        const body = await response.json() as Partial<SessionResponse> & { message?: string };
+        if (!response.ok) {
+          this.setState('error', body.message ?? 'Unable to reach the multiplayer room.');
+          return null;
+        }
+        if (!validSession(body)) throw new Error('Room server returned an invalid session');
+        return body;
+      } catch (error) {
+        if (signal.aborted) return null;
+        lastError = error;
+        if (attempt < 2) await retryDelay(attempt, signal);
+      }
     }
+    console.warn('Verdium multiplayer room request failed:', safeErrorMessage(lastError));
+    this.setState('error', 'Unable to reach the Verdium multiplayer server after three attempts. It may be waking up; try again shortly.');
+    return null;
   }
 
   private connect(session: SessionResponse, generation: number): Promise<boolean> {
@@ -448,7 +455,15 @@ function defaultServerUrl(): string {
   if (typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     return 'http://localhost:8787';
   }
-  return '';
+  return PRODUCTION_SERVER_URL;
+}
+
+async function retryDelay(attempt: number, signal: AbortSignal): Promise<void> {
+  const delayMs = [750, 2500][attempt] ?? 2500;
+  await new Promise<void>((resolve) => {
+    const timer = globalThis.setTimeout(resolve, delayMs);
+    signal.addEventListener('abort', () => { globalThis.clearTimeout(timer); resolve(); }, { once: true });
+  });
 }
 
 function normalizeServerUrl(value: string): string {
