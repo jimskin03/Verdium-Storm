@@ -74,7 +74,7 @@ export interface EconomySnapshot {
 
 export interface GameStateService {
   readonly faction: Faction;
-  readonly team: Team;
+  readonly team: Team | 2;
   readonly economy: EconomySnapshot;
   readonly selection: SelectionSummary[];
   readonly alerts: Alert[];

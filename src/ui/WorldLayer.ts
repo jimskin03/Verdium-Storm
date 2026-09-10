@@ -67,7 +67,7 @@ export class WorldLayer {
     }
   }
 
-  update(camera: THREE.PerspectiveCamera, probe: WorldProbe, playerTeam: Team): void {
+  update(camera: THREE.PerspectiveCamera, probe: WorldProbe, playerTeam: Team | 2): void {
     const targets = probe.healthTargets?.();
     if (!targets || targets.length === 0) {
       this.hideAll();
@@ -110,7 +110,7 @@ export class WorldLayer {
       }
       if (bar.team !== t.team) {
         bar.team = t.team;
-        setClass(bar.root, 'enemy', t.team !== playerTeam);
+        setClass(bar.root, 'enemy', playerTeam < 2 ? t.team !== playerTeam : t.team === 1);
       }
       setClass(bar.root, 'sel', t.selected);
 

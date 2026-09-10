@@ -19,6 +19,8 @@ export interface LobbySnapshot {
   state: LobbyState;
   roomCode: string;
   isHost: boolean;
+  isSpectator?: boolean;
+  passcode?: string;
   team: Team;
   message: string;
 }
@@ -41,6 +43,7 @@ type SessionResponse = {
   roomCode: string;
   sessionToken: string;
   isHost: boolean;
+  isSpectator?: boolean;
   team: Team;
   seed: number;
 };
@@ -51,6 +54,7 @@ type RoomSnapshotMessage = {
   roomCode: string;
   state: 'waiting' | 'ready' | 'launched';
   isHost: boolean;
+  isSpectator?: boolean;
   team: Team;
   seed: number;
   connectedPlayers: number;
@@ -58,7 +62,7 @@ type RoomSnapshotMessage = {
 
 type WireMessage =
   | RoomSnapshotMessage
-  | { type: 'action'; requestId: string; serverSequence: number; action: MultiplayerAction }
+  | { type: 'action'; requestId: string; serverSequence: number; team?: 0 | 1; action: MultiplayerAction }
   | { type: 'action_ack'; requestId: string; serverSequence: number; duplicate: boolean }
   | { type: 'room_closed'; code: string; message: string }
   | { type: 'error'; code: string; message: string };
@@ -82,13 +86,15 @@ export class MultiplayerLobby {
   private readonly fetchImpl: typeof globalThis.fetch | null;
   private readonly webSocketFactory: ((url: string) => WebSocketLike) | null;
   private launchHandlers: Array<() => void> = [];
-  private actionHandlers: Array<(action: MultiplayerAction) => void> = [];
+  private actionHandlers: Array<(action: MultiplayerAction, team?: 0 | 1) => void> = [];
   private stateHandlers: Array<(snapshot: LobbySnapshot) => void> = [];
 
   private _state: LobbyState = 'idle';
   private _roomCode = '';
   private _isHost = false;
-  private _team: Team = 0;
+  private _isSpectator = false;
+  private _passcode = '';
+  private _team: Team | 2 = 0;
   private _seed = 0;
   private _message = 'Create a room or join an existing two-player room.';
 
@@ -103,7 +109,9 @@ export class MultiplayerLobby {
   get state(): LobbyState { return this._state; }
   get roomCode(): string { return this._roomCode; }
   get isHost(): boolean { return this._isHost; }
-  get team(): Team { return this._team; }
+  get isSpectator(): boolean { return this._isSpectator; }
+  get passcode(): string { return this._passcode; }
+  get team(): Team | 2 { return this._team; }
   get seed(): number { return this._seed; }
   get isReady(): boolean { return this._state === 'ready'; }
   get isLaunched(): boolean { return this._state === 'launched'; }
@@ -113,7 +121,9 @@ export class MultiplayerLobby {
       state: this._state,
       roomCode: this._roomCode,
       isHost: this._isHost,
-      team: this._team,
+      isSpectator: this._isSpectator,
+      passcode: this._passcode,
+      team: (this._team === 2 ? 0 : this._team) as Team,
       message: this._message,
     };
   }
@@ -135,7 +145,7 @@ export class MultiplayerLobby {
     };
   }
 
-  onAction(listener: (action: MultiplayerAction) => void): () => void {
+  onAction(listener: (action: MultiplayerAction, team?: 0 | 1) => void): () => void {
     this.actionHandlers.push(listener);
     return () => {
       const index = this.actionHandlers.indexOf(listener);
@@ -158,6 +168,7 @@ export class MultiplayerLobby {
     if (generation !== this.connectionGeneration) return false;
     this.requestController = null;
     if (!session) return false;
+    this._passcode = password;
     return this.connect(session, generation);
   }
 
@@ -181,6 +192,32 @@ export class MultiplayerLobby {
     if (generation !== this.connectionGeneration) return false;
     this.requestController = null;
     if (!session) return false;
+    this._passcode = password;
+    return this.connect(session, generation);
+  }
+
+  async spectate(roomCode: string, password: string): Promise<boolean> {
+    const normalizedRoom = roomCode.trim().toUpperCase();
+    if (!/^[A-HJ-NP-Z2-9]{6}$/.test(normalizedRoom)) {
+      this.setState('error', 'Enter the six-character room code to spectate.');
+      return false;
+    }
+    if (!validPassword(password)) {
+      this.setState('error', `Enter the room passcode (${PASSWORD_MIN_BYTES}–${PASSWORD_MAX_BYTES} UTF-8 bytes).`);
+      return false;
+    }
+    if (!this.hasNetworkTransport()) return false;
+    this.resetConnection();
+    const generation = this.connectionGeneration;
+    const controller = new AbortController();
+    this.requestController = controller;
+    this.setState('joining', `Connecting to spectate room ${normalizedRoom}…`);
+    const session = await this.roomRequest(`/api/rooms/${normalizedRoom}/spectate`, password, controller.signal);
+    if (generation !== this.connectionGeneration) return false;
+    this.requestController = null;
+    if (!session) return false;
+    this._passcode = password;
+    this._isSpectator = true;
     return this.connect(session, generation);
   }
 
@@ -191,7 +228,7 @@ export class MultiplayerLobby {
   }
 
   sendAction(action: MultiplayerAction): void {
-    if (!this.isLaunched) return;
+    if (!this.isLaunched || this._isSpectator) return;
     const sent = this.send({
       type: 'action',
       requestId: makeId(20),
@@ -246,6 +283,7 @@ export class MultiplayerLobby {
     if (generation !== this.connectionGeneration) return Promise.resolve(false);
     this._roomCode = session.roomCode;
     this._isHost = session.isHost;
+    this._isSpectator = !!session.isSpectator;
     this._team = session.team;
     this._seed = session.seed;
     this.nextClientSequence = 1;
@@ -328,8 +366,18 @@ export class MultiplayerLobby {
     if (message.type === 'room_snapshot') {
       if (!validRoomSnapshot(message) || message.roomCode !== this._roomCode) return;
       this._isHost = message.isHost;
+      this._isSpectator = !!message.isSpectator;
       this._team = message.team;
       this._seed = message.seed;
+      if (this._isSpectator) {
+        if (message.state === 'launched') {
+          if (this._state !== 'launched') this.launchLocal();
+          this.setState('launched', `Spectating live match ${this._roomCode}.`);
+        } else {
+          this.setState('ready', `Spectator connected to room ${this._roomCode}. Waiting for match deployment.`);
+        }
+        return;
+      }
       if (message.state === 'waiting') {
         this.setState('waiting', `Room ${this._roomCode} is online. Waiting for Commander 2.`);
       } else if (message.state === 'ready') {
@@ -342,7 +390,7 @@ export class MultiplayerLobby {
       return;
     }
     if (message.type === 'action' && this.isLaunched && validServerAction(message)) {
-      for (const handler of this.actionHandlers) handler(message.action);
+      for (const handler of this.actionHandlers) handler(message.action, message.team);
       return;
     }
     if (message.type === 'room_closed') {
@@ -369,13 +417,15 @@ export class MultiplayerLobby {
     this.socket = null;
     this._roomCode = '';
     this._isHost = false;
+    this._isSpectator = false;
+    this._passcode = '';
     this._team = 0;
     this._seed = 0;
     this.nextClientSequence = 1;
   }
 
   private launchLocal(): void {
-    this.setState('launched', 'Match link established. Command your faction.');
+    this.setState('launched', this._isSpectator ? `Spectating match ${this._roomCode}.` : 'Match link established. Command your faction.');
     for (const handler of this.launchHandlers) handler();
   }
 
@@ -428,7 +478,7 @@ function validSession(value: Partial<SessionResponse>): value is SessionResponse
     && typeof value.sessionToken === 'string'
     && /^[A-Za-z0-9_-]{40,128}$/.test(value.sessionToken)
     && typeof value.isHost === 'boolean'
-    && (value.team === 0 || value.team === 1)
+    && (value.team === 0 || value.team === 1 || value.team === 2)
     && Number.isInteger(value.seed)
     && value.seed! >= 0
     && value.seed! <= 0xffffffff;
@@ -437,12 +487,12 @@ function validSession(value: Partial<SessionResponse>): value is SessionResponse
 function validRoomSnapshot(message: RoomSnapshotMessage): boolean {
   return message.protocolVersion === PROTOCOL_VERSION
     && /^[A-HJ-NP-Z2-9]{6}$/.test(message.roomCode)
-    && (message.team === 0 || message.team === 1)
+    && (message.team === 0 || message.team === 1 || message.team === 2)
     && Number.isInteger(message.seed)
     && message.seed >= 0
     && message.seed <= 0xffffffff
     && Number.isInteger(message.connectedPlayers)
-    && message.connectedPlayers >= 1
+    && message.connectedPlayers >= 0
     && message.connectedPlayers <= 2;
 }
 

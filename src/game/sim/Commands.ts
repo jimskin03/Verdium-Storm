@@ -91,13 +91,15 @@ export class PlayerController {
     this.dom = ctx.viewport;
     this.camera = ctx.camera;
 
-    this.marquee = document.createElement('div');
-    this.marquee.style.cssText = [
-      'position:absolute', 'pointer-events:none', 'display:none', 'z-index:40',
-      'border:1px solid rgba(120,220,255,0.9)', 'background:rgba(90,190,255,0.12)',
-      'box-shadow:0 0 12px rgba(80,190,255,0.35) inset',
-    ].join(';');
-    ctx.uiRoot.appendChild(this.marquee);
+    if (typeof document !== 'undefined') {
+      this.marquee = document.createElement('div');
+      this.marquee.style.cssText = [
+        'position:absolute', 'pointer-events:none', 'display:none', 'z-index:40',
+        'border:1px solid rgba(120,220,255,0.9)', 'background:rgba(90,190,255,0.12)',
+        'box-shadow:0 0 12px rgba(80,190,255,0.35) inset',
+      ].join(';');
+      ctx.uiRoot?.appendChild?.(this.marquee);
+    }
 
     this.ghostGeo = new THREE.BoxGeometry(1, 1, 1);
     this.ghostMat = new THREE.MeshBasicMaterial({
@@ -108,17 +110,21 @@ export class PlayerController {
     this.ghost.renderOrder = 10;
     this.sim.entityRoot.add(this.ghost);
 
-    this.dom.addEventListener('pointerdown', this.onPointerDown);
-    this.dom.addEventListener('pointermove', this.onPointerMove);
-    window.addEventListener('pointerup', this.onPointerUp);
-    window.addEventListener('keydown', this.onKeyDown);
+    this.dom?.addEventListener?.('pointerdown', this.onPointerDown);
+    this.dom?.addEventListener?.('pointermove', this.onPointerMove);
+    if (typeof window !== 'undefined') {
+      window.addEventListener?.('pointerup', this.onPointerUp);
+      window.addEventListener?.('keydown', this.onKeyDown);
+    }
   }
 
   dispose(): void {
-    this.dom?.removeEventListener('pointerdown', this.onPointerDown);
-    this.dom?.removeEventListener('pointermove', this.onPointerMove);
-    window.removeEventListener('pointerup', this.onPointerUp);
-    window.removeEventListener('keydown', this.onKeyDown);
+    this.dom?.removeEventListener?.('pointerdown', this.onPointerDown);
+    this.dom?.removeEventListener?.('pointermove', this.onPointerMove);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener?.('pointerup', this.onPointerUp);
+      window.removeEventListener?.('keydown', this.onKeyDown);
+    }
     this.marquee?.remove();
     this.ghost?.removeFromParent();
     this.ghostGeo?.dispose();

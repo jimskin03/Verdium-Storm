@@ -106,6 +106,7 @@ export function createVerdiumServer(options = {}) {
             host: hostSession.player,
             guest: null,
           },
+          spectators: new Map(),
         };
         rooms.set(code, room);
         return sendJson(response, 201, sessionResponse(room, 'host', hostSession.token));
@@ -127,6 +128,24 @@ export function createVerdiumServer(options = {}) {
         room.players.guest = guestSession.player;
         room.lastActivity = Date.now();
         return sendJson(response, 200, sessionResponse(room, 'guest', guestSession.token));
+      }
+
+      const spectateMatch = /^\/api\/rooms\/([A-Z0-9]{6})\/spectate$/.exec(url.pathname);
+      if (request.method === 'POST' && spectateMatch) {
+        const body = await readJson(request);
+        pruneExpiredReservations(rooms);
+        const room = rooms.get(spectateMatch[1]);
+        const password = typeof body.password === 'string' ? body.password : '';
+        const passwordMatches = await runPasswordOperation(() => room
+          ? verifyPassword(password, room.passwordRecord)
+          : consumeDummyPasswordCheck(password));
+        if (!room || room.destroying || !passwordMatches) {
+          return roomUnavailable(response);
+        }
+        const spectatorSession = createSession('spectator', sessionReservationMs);
+        room.spectators.set(spectatorSession.token, spectatorSession.player);
+        room.lastActivity = Date.now();
+        return sendJson(response, 200, sessionResponse(room, 'spectator', spectatorSession.token));
       }
 
       return sendJson(response, 404, { error: 'NOT_FOUND' });
@@ -187,6 +206,10 @@ export function createVerdiumServer(options = {}) {
       clearTimeout(state.authTimer);
       socketState.delete(socket);
       if (shuttingDown || !state.room) return;
+      if (state.role === 'spectator') {
+        if (state.token && state.room.spectators) state.room.spectators.delete(state.token);
+        return;
+      }
       destroyRoom(state.room, rooms, socket, 'PEER_DISCONNECTED');
     });
   });
@@ -258,9 +281,10 @@ async function authenticateSocket(socket, state, message, rooms) {
   const room = rooms.get(message.roomCode);
   if (!room || room.destroying) return closeSocket(socket, 4003, 'Authentication failed');
   const tokenHash = hashToken(message.sessionToken);
-  const role = findRole(room, tokenHash);
+  const role = findRole(room, tokenHash, message.sessionToken);
   if (!role) return closeSocket(socket, 4003, 'Authentication failed');
-  const player = room.players[role];
+  const player = role === 'spectator' ? room.spectators.get(message.sessionToken) : room.players[role];
+  if (!player) return closeSocket(socket, 4003, 'Authentication failed');
   if (player.socket && player.socket.readyState === WebSocket.OPEN) {
     return closeSocket(socket, 4003, 'Session already connected');
   }
@@ -269,6 +293,7 @@ async function authenticateSocket(socket, state, message, rooms) {
   state.authTimer = null;
   state.room = room;
   state.role = role;
+  state.token = message.sessionToken;
   player.socket = socket;
   player.reservedUntil = null;
   room.lastActivity = Date.now();
@@ -283,12 +308,17 @@ async function authenticateSocket(socket, state, message, rooms) {
 
 function handleAuthenticatedMessage(socket, state, message, rooms) {
   const room = state.room;
-  const player = room.players[state.role];
   room.lastActivity = Date.now();
 
   if (message?.type === 'leave' && isExactObject(message, ['type'])) {
-    return closeSocket(socket, 1000, 'Commander left');
+    return closeSocket(socket, 1000, state.role === 'spectator' ? 'Spectator left' : 'Commander left');
   }
+
+  if (state.role === 'spectator') {
+    return sendError(socket, 'SPECTATOR_READ_ONLY', 'Spectators cannot deploy or issue commands.');
+  }
+
+  const player = room.players[state.role];
 
   if (message?.type === 'launch') {
     if (!isExactObject(message, ['type', 'requestId']) || !validRequestId(message.requestId)) {
@@ -337,6 +367,7 @@ function handleAuthenticatedMessage(socket, state, message, rooms) {
     player.nextClientSequence++;
     player.requests.set(message.requestId, serverSequence);
     trimRequestHistory(player.requests);
+    const team = state.role === 'host' ? 0 : 1;
     const relayed = {
       type: 'action',
       requestId: message.requestId,
@@ -345,6 +376,20 @@ function handleAuthenticatedMessage(socket, state, message, rooms) {
     };
     if (!safeSend(peer.socket, relayed)) {
       return destroyRoom(room, rooms, socket, 'PEER_DISCONNECTED');
+    }
+    if (room.spectators) {
+      const spectatorRelay = {
+        type: 'action',
+        requestId: message.requestId,
+        serverSequence,
+        team,
+        action: message.action,
+      };
+      for (const spec of room.spectators.values()) {
+        if (spec?.socket && spec.socket.readyState === WebSocket.OPEN) {
+          safeSend(spec.socket, spectatorRelay);
+        }
+      }
     }
     safeSend(socket, {
       type: 'action_ack',
@@ -420,8 +465,10 @@ function sessionResponse(room, role, token) {
     roomCode: room.code,
     sessionToken: token,
     isHost: role === 'host',
-    team: role === 'host' ? 0 : 1,
+    isSpectator: role === 'spectator',
+    team: role === 'host' ? 0 : role === 'guest' ? 1 : 2,
     seed: room.seed,
+    state: room.state,
   };
 }
 
@@ -430,6 +477,12 @@ function broadcastSnapshots(room) {
     const player = room.players[role];
     if (!player?.socket || player.socket.readyState !== WebSocket.OPEN) continue;
     safeSend(player.socket, snapshotFor(room, role));
+  }
+  if (room.spectators) {
+    for (const spec of room.spectators.values()) {
+      if (!spec?.socket || spec.socket.readyState !== WebSocket.OPEN) continue;
+      safeSend(spec.socket, snapshotFor(room, 'spectator'));
+    }
   }
 }
 
@@ -440,7 +493,8 @@ function snapshotFor(room, role) {
     roomCode: room.code,
     state: room.state,
     isHost: role === 'host',
-    team: role === 'host' ? 0 : 1,
+    isSpectator: role === 'spectator',
+    team: role === 'host' ? 0 : role === 'guest' ? 1 : 2,
     seed: room.seed,
     connectedPlayers: Number(room.players.host.socket?.readyState === WebSocket.OPEN)
       + Number(room.players.guest?.socket?.readyState === WebSocket.OPEN),
@@ -462,6 +516,16 @@ function destroyRoom(room, rooms, sourceSocket, code) {
     safeSend(socket, message);
     setTimeout(() => closeSocket(socket, 4001, message.message), 20).unref?.();
   }
+  if (room.spectators) {
+    for (const spec of room.spectators.values()) {
+      const socket = spec?.socket;
+      spec.socket = null;
+      if (!socket || socket.readyState !== WebSocket.OPEN) continue;
+      safeSend(socket, message);
+      setTimeout(() => closeSocket(socket, 4001, message.message), 20).unref?.();
+    }
+    room.spectators.clear();
+  }
 }
 
 function pruneExpiredReservations(rooms, now = Date.now()) {
@@ -475,6 +539,13 @@ function pruneExpiredReservations(rooms, now = Date.now()) {
     if (guest && !guest.socket && guest.reservedUntil !== null && guest.reservedUntil <= now) {
       room.players.guest = null;
       room.lastActivity = now;
+    }
+    if (room.spectators) {
+      for (const [token, spec] of room.spectators.entries()) {
+        if (!spec.socket && spec.reservedUntil !== null && spec.reservedUntil <= now) {
+          room.spectators.delete(token);
+        }
+      }
     }
   }
 }
@@ -524,10 +595,13 @@ function hashToken(token) {
   return createHash('sha256').update(token).digest();
 }
 
-function findRole(room, tokenHash) {
+function findRole(room, tokenHash, token) {
   for (const role of ['host', 'guest']) {
     const expected = room.players[role]?.tokenHash;
     if (expected && timingSafeEqual(tokenHash, expected)) return role;
+  }
+  if (room.spectators && token && room.spectators.has(token)) {
+    return 'spectator';
   }
   return null;
 }

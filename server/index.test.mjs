@@ -270,3 +270,80 @@ test('expires unauthenticated reservations and enforces the room capacity limit'
   assert.equal(capacity.response.status, 503);
   assert.equal(capacity.body.error, 'SERVER_CAPACITY');
 });
+
+test('spectator joins with password, observes launch and actions with team, cannot command, and disconnects safely', async () => {
+  const hostSession = await createRoom();
+  const guestResponse = await request(`/api/rooms/${hostSession.roomCode}/join`, {
+    method: 'POST',
+    body: JSON.stringify({ password: PASSWORD }),
+  });
+  assert.equal(guestResponse.response.status, 200);
+
+  // Spectator requests session
+  const specResponse = await request(`/api/rooms/${hostSession.roomCode}/spectate`, {
+    method: 'POST',
+    body: JSON.stringify({ password: PASSWORD }),
+  });
+  assert.equal(specResponse.response.status, 200);
+  assert.equal(specResponse.body.isSpectator, true);
+  assert.equal(specResponse.body.team, 2);
+
+  const host = await connect(hostSession);
+  const guest = await connect(guestResponse.body);
+  const spec = await connect(specResponse.body);
+
+  assert.equal(spec.snapshot.isSpectator, true);
+  assert.equal(spec.snapshot.state, 'ready');
+
+  // Launch match
+  await launchRoom(host.socket, guest.socket);
+
+  const specLaunch = await nextMessage(spec.socket, (m) => m.type === 'room_snapshot' && m.state === 'launched');
+  assert.equal(specLaunch.state, 'launched');
+
+  // Spectator attempts to issue a command (should be rejected as read-only)
+  const specActionErrorPromise = nextMessage(spec.socket, (m) => m.type === 'error');
+  spec.socket.send(JSON.stringify({
+    type: 'action',
+    requestId: 'spec-1',
+    clientSequence: 1,
+    action: { type: 'stop', refs: [1001] },
+  }));
+  const specError = await specActionErrorPromise;
+  assert.equal(specError.code, 'SPECTATOR_READ_ONLY');
+
+  // Host issues action; peer and spectator receive it
+  const action = { type: 'queue-build', id: 'rifleman' };
+  const guestActionPromise = nextMessage(guest.socket, (m) => m.type === 'action');
+  const specActionPromise = nextMessage(spec.socket, (m) => m.type === 'action');
+
+  host.socket.send(JSON.stringify({
+    type: 'action',
+    requestId: 'host-action-1',
+    clientSequence: 1,
+    action,
+  }));
+
+  const [guestRelayed, specRelayed] = await Promise.all([guestActionPromise, specActionPromise]);
+  assert.equal(guestRelayed.requestId, 'host-action-1');
+  assert.equal(specRelayed.requestId, 'host-action-1');
+  assert.equal(specRelayed.team, 0); // Attributed to host team
+  assert.deepEqual(specRelayed.action, action);
+
+  // Spectator disconnects; room remains active for host and guest
+  spec.socket.close();
+  await new Promise((r) => setTimeout(r, 50));
+
+  const guestAckPromise = nextMessage(guest.socket, (m) => m.type === 'action_ack');
+  const hostActionPromise = nextMessage(host.socket, (m) => m.type === 'action');
+  guest.socket.send(JSON.stringify({
+    type: 'action',
+    requestId: 'guest-action-1',
+    clientSequence: 1,
+    action: { type: 'stop', refs: [2001] },
+  }));
+  const [guestAck, hostRelayed] = await Promise.all([guestAckPromise, hostActionPromise]);
+  assert.equal(guestAck.requestId, 'guest-action-1');
+  assert.equal(hostRelayed.requestId, 'guest-action-1');
+});
+

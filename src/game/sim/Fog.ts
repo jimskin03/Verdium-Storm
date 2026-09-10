@@ -96,6 +96,10 @@ export class FogOfWar {
     this.mesh.renderOrder = 12;
     this.mesh.matrixAutoUpdate = false;
     this.mesh.updateMatrix();
+    if (this.viewTeam >= 2) {
+      this.enabled = false;
+      this.mesh.visible = false;
+    }
     parent.add(this.mesh);
   }
 
@@ -134,11 +138,13 @@ export class FogOfWar {
   }
 
   clearVisible(team: number): void {
+    if (team < 0 || team >= this.visible.length) return;
     this.visible[team].fill(0);
   }
 
   /** Marks a circular area seen by `team`. */
   reveal(team: number, x: number, z: number, radius: number): void {
+    if (team < 0 || team >= this.visible.length) return;
     const vis = this.visible[team];
     const exp = this.explored[team];
     const r = radius / FOG_CELL;
@@ -168,16 +174,20 @@ export class FogOfWar {
   }
 
   isVisible(team: number, x: number, z: number): boolean {
+    if (team >= 2) return true;
+    if (team < 0 || !this.visible[team]) return false;
     return this.visible[team][FogOfWar.index(x, z)] === 1;
   }
 
   isExplored(team: number, x: number, z: number): boolean {
+    if (team >= 2) return true;
+    if (team < 0 || !this.explored[team]) return false;
     return this.explored[team][FogOfWar.index(x, z)] === 1;
   }
 
   /** Smooths the display grid toward the authoritative grids and uploads it. */
   updateVisuals(dt: number): void {
-    if (!this.enabled) return;
+    if (!this.enabled || this.viewTeam >= 2) return;
     const exp = this.explored[this.viewTeam];
     const vis = this.visible[this.viewTeam];
     const d = this.display;
@@ -208,7 +218,9 @@ export class FogOfWar {
   }
 
   grids(): { explored: Uint8Array; visible: Uint8Array; resolution: number } {
-    return { explored: this.explored[this.viewTeam], visible: this.visible[this.viewTeam], resolution: FOG_RES };
+    const exp = this.viewTeam < 2 ? this.explored[this.viewTeam] : this.explored[0];
+    const vis = this.viewTeam < 2 ? this.visible[this.viewTeam] : this.visible[0];
+    return { explored: exp, visible: vis, resolution: FOG_RES };
   }
 
   setEnabled(on: boolean): void {

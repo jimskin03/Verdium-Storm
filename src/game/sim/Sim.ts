@@ -75,14 +75,23 @@ const MAX_ALERTS = 8;
 const REPAIR_RADIUS = 30;
 const REPAIR_RATE = 0.085;
 
+export interface SimEvent {
+  tick: number;
+  type: string;
+  visibility: 'public' | 'team';
+  team?: 0 | 1;
+  payload: Record<string, unknown>;
+}
+
 export interface SimOptions {
-  playerTeam: Team;
+  playerTeam: Team | 2;
   playerFaction: Faction;
   enemyFaction: Faction;
   seed: number;
   /** Runs a commander for the human team too, so the match plays itself. */
   autoPlayer: boolean;
   pacing: PacingProfile;
+  onEvent?: (event: SimEvent) => void;
 }
 
 interface Corpse {
@@ -132,6 +141,16 @@ export class Sim {
   private navScratch = new Float32Array(2);
   private dirScratch = new Float32Array(2);
   private normalScratch = new Float32Array(3);
+
+  private visibleEnemyRefs: [Set<number>, Set<number>] = [new Set(), new Set()];
+  private previousPowerRatio: [number, number] = [1, 1];
+  private peaceAlerted = false;
+
+  emitEvent(type: string, visibility: 'public' | 'team', payload: Record<string, unknown>, team?: 0 | 1): void {
+    if (this.options.onEvent) {
+      this.options.onEvent({ tick: this.tickCount, type, visibility, team, payload });
+    }
+  }
 
   constructor(private scene: THREE.Object3D, readonly options: SimOptions) {
     this.rng = makeRng(options.seed);
@@ -223,6 +242,14 @@ export class Sim {
     this.entityRoot.add(rig.root);
 
     this.teams[team].units[typeId]++;
+    this.emitEvent('unit_created', 'team', {
+      id: u.ref(slot) >>> 0,
+      kind: 'unit',
+      type: stats.type,
+      team,
+      x: Math.round(x * 2) / 2,
+      z: Math.round(z * 2) / 2,
+    }, team as 0 | 1);
     return slot;
   }
 
@@ -290,6 +317,14 @@ export class Sim {
     state.buildings[typeId]++;
     state.pending[typeId]--;
     this.recomputePower();
+    this.emitEvent('building_complete', 'public', {
+      id: b.ref(slot) >>> 0,
+      kind: 'building',
+      type: BUILDING_LIST[typeId].type,
+      team,
+      x: Math.round(b.px[slot] * 2) / 2,
+      z: Math.round(b.pz[slot] * 2) / 2,
+    }, team as 0 | 1);
     if (team === this.options.playerTeam) {
       this.pushAlert('buildingComplete', `${BUILDING_LIST[typeId].label} online`, b.px[slot], b.pz[slot]);
     }
@@ -314,6 +349,20 @@ export class Sim {
       const t = this.teams[b.team[i]];
       if (p >= 0) t.powerProduced += p;
       else t.powerConsumed -= p;
+    }
+    for (let t = 0; t < 2; t++) {
+      const state = this.teams[t];
+      const prevRatio = this.previousPowerRatio[t];
+      const curRatio = state.powerRatio;
+      if (prevRatio >= 1 && curRatio < 1) {
+        this.emitEvent('power_low', 'team', {
+          team: t,
+          powerProduced: state.powerProduced,
+          powerConsumed: state.powerConsumed,
+          powerRatio: Math.round(curRatio * 100) / 100,
+        }, t as 0 | 1);
+      }
+      this.previousPowerRatio[t] = curRatio;
     }
   }
 
@@ -550,6 +599,14 @@ export class Sim {
   tick(dt: number): void {
     this.tickCount++;
     this.matchTime += dt;
+
+    if (!this.peaceAlerted && this.tickCount >= this.options.pacing.openingPeaceTicks && this.options.pacing.openingPeaceTicks > 0) {
+      this.peaceAlerted = true;
+      this.emitEvent('objective_changed', 'public', {
+        status: 'active',
+        message: 'Ceasefire has expired. Tactical offensive operations authorized.',
+      });
+    }
 
     this.flow.update(FIELD_BUDGET);
     this.units.refreshLive();
@@ -1463,6 +1520,15 @@ export class Sim {
       u.hp[slot] -= dmg;
       u.lastHit[slot] = this.matchTime;
       this.refreshDamageState(ref, slot);
+      this.emitEvent('unit_damaged', 'team', {
+        id: ref >>> 0,
+        kind: 'unit',
+        type: UNIT_LIST[u.type[slot]].type,
+        team: u.team[slot],
+        hp: Math.max(0, Math.round(u.hp[slot])),
+        maxHp: u.maxHp[slot],
+        damage: Math.round(dmg),
+      }, u.team[slot] as 0 | 1);
       // Retaliate when idle so units are not shot in the back without reacting.
       if (source !== NO_REF && !this.refValid(u.targetRef[slot]) && u.stance[slot] !== Stance.HoldFire) {
         u.targetRef[slot] = source;
@@ -1477,6 +1543,15 @@ export class Sim {
       b.hp[slot] -= dmg;
       b.lastHit[slot] = this.matchTime;
       this.refreshDamageState(ref, slot);
+      this.emitEvent('unit_damaged', 'team', {
+        id: ref >>> 0,
+        kind: 'building',
+        type: BUILDING_LIST[b.type[slot]].type,
+        team: b.team[slot],
+        hp: Math.max(0, Math.round(b.hp[slot])),
+        maxHp: b.maxHp[slot],
+        damage: Math.round(dmg),
+      }, b.team[slot] as 0 | 1);
       if (b.team[slot] === this.options.playerTeam && this.tickCount % 60 === 0) {
         this.pushAlert('baseUnderAttack', 'Base under attack', b.px[slot], b.pz[slot]);
       }
@@ -1507,6 +1582,15 @@ export class Sim {
     const team = u.team[slot];
     const stats = UNIT_LIST[typeId];
     if (u.resourceField[slot] >= 0) this.resources.claims[u.resourceField[slot]]--;
+
+    this.emitEvent('unit_destroyed', 'public', {
+      id: u.ref(slot) >>> 0,
+      kind: 'unit',
+      type: stats.type,
+      team,
+      x: Math.round(u.px[slot]),
+      z: Math.round(u.pz[slot]),
+    });
 
     if (explode) {
       const scale = stats.radius * 0.9;
@@ -1547,6 +1631,15 @@ export class Sim {
     const team = b.team[slot];
     const stats = BUILDING_LIST[typeId];
     const size = stats.footprint * NAV_CELL;
+
+    this.emitEvent('unit_destroyed', 'public', {
+      id: b.ref(slot) >>> 0,
+      kind: 'building',
+      type: stats.type,
+      team,
+      x: Math.round(b.px[slot]),
+      z: Math.round(b.pz[slot]),
+    });
 
     scratchB.set(b.px[slot], b.py[slot] + 4, b.pz[slot]);
     const fx = tryGet('effects');
@@ -1679,6 +1772,11 @@ export class Sim {
     this.nav.nearestPassable(ex, ez, this.navScratch);
     const slot = this.spawnUnit(typeId, b.team[i], this.navScratch[0], this.navScratch[1], a);
     if (slot < 0) return;
+    this.emitEvent('production_complete', 'team', {
+      id: stats.type,
+      kind: 'unit',
+      team: b.team[i],
+    }, b.team[i] as 0 | 1);
     if (b.hasRally[i]) {
       this.units.pushOrder(slot, Order.Move, b.rallyX[i], b.rallyZ[i], NO_REF);
     }
@@ -1749,6 +1847,12 @@ export class Sim {
         q.spent = 0;
         q.items.shift();
         team.readyBuilding = typeId;
+        this.emitEvent('production_complete', 'team', {
+          id: stats.type,
+          kind: 'building',
+          team: team.team,
+          readyToPlace: true,
+        }, team.team as 0 | 1);
       }
     }
   }
@@ -1780,6 +1884,59 @@ export class Sim {
     for (let n = 0; n < b.liveCount; n++) {
       const i = b.live[n];
       b.visible[i] = b.team[i] === view || this.fog.isExplored(view, b.px[i], b.pz[i]) ? 1 : 0;
+    }
+
+    // Track enemy_spotted and enemy_lost transitions for both teams
+    for (let t = 0; t < 2; t++) {
+      const team = t as 0 | 1;
+      const prev = this.visibleEnemyRefs[team];
+      const next = new Set<number>();
+      for (let n = 0; n < u.liveCount; n++) {
+        const i = u.live[n];
+        if (u.team[i] === team) continue;
+        if (this.fog.isVisible(team, u.px[i], u.pz[i])) {
+          const ref = u.ref(i) >>> 0;
+          next.add(ref);
+          if (!prev.has(ref)) {
+            this.emitEvent('enemy_spotted', 'team', {
+              id: ref,
+              kind: 'unit',
+              type: UNIT_LIST[u.type[i]].type,
+              team: u.team[i],
+              x: Math.round(u.px[i] * 2) / 2,
+              z: Math.round(u.pz[i] * 2) / 2,
+              hp: Math.round(u.hp[i]),
+              maxHp: u.maxHp[i],
+            }, team);
+          }
+        }
+      }
+      for (let n = 0; n < b.liveCount; n++) {
+        const i = b.live[n];
+        if (b.team[i] === team) continue;
+        if (this.fog.isVisible(team, b.px[i], b.pz[i])) {
+          const ref = b.ref(i) >>> 0;
+          next.add(ref);
+          if (!prev.has(ref)) {
+            this.emitEvent('enemy_spotted', 'team', {
+              id: ref,
+              kind: 'building',
+              type: BUILDING_LIST[b.type[i]].type,
+              team: b.team[i],
+              x: Math.round(b.px[i] * 2) / 2,
+              z: Math.round(b.pz[i] * 2) / 2,
+              hp: Math.round(b.hp[i]),
+              maxHp: b.maxHp[i],
+            }, team);
+          }
+        }
+      }
+      for (const oldRef of prev) {
+        if (!next.has(oldRef)) {
+          this.emitEvent('enemy_lost', 'team', { id: oldRef }, team);
+        }
+      }
+      this.visibleEnemyRefs[team] = next;
     }
   }
 

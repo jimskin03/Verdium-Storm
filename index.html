@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="description" content="Verdium Storm — 3D RTS Tactical Warfare Engine. AI Agent API available via ?agent=1&pacing=deliberate exposing window.VS_AGENT. Spectator mode via ?spectate=ROOMCODE&pass=PASSCODE." />
+<meta name="agent-api" content="window.VS_AGENT: observe(), command(requestId, action), events(afterId), waitFor(options), start(), step(ticks), getSpectatorInfo(). Enable with ?agent=1" />
+<meta name="spectator-api" content="Join match as spectator via ?spectate=ROOMCODE&pass=PASSCODE or via Multiplayer menu." />
 <title>VERDIUM STORM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <style>
@@ -42,6 +45,14 @@
     <div class="bar"><i id="boot-bar"></i></div>
     <div class="status" id="boot-status">initialising</div>
   </div>
+  <section id="ai-agent-docs" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;" aria-label="Autonomous Agent & Spectator Instructions">
+    <h2>Autonomous AI Agent & Spectator Interface</h2>
+    <p>Verdium Storm supports programmatic play and spectating via browser automation.</p>
+    <p>To enable the agent API: load with query parameter ?agent=1&pacing=deliberate. This exposes `window.VS_AGENT`.</p>
+    <p>Available VS_AGENT methods: observe(), command(requestId, action), events(afterEventId, limit), waitFor(options), start(), step(ticks), getSpectatorInfo().</p>
+    <p>Entity IDs are numeric. Observation includes units, buildings, economy, production queues & available items with costs/lock reasons, known resources, objectives, and map bounds.</p>
+    <p>Spectator Mode: Operators can view matches live by visiting ?spectate=ROOMCODE&pass=PASSCODE or using the Spectate tab in the Multiplayer menu with room code and passcode.</p>
+  </section>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

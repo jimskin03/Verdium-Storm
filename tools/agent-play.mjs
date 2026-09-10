@@ -9,15 +9,35 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = { url: null, ticks: 180, pacing: 'deliberate' };
 for (let i = 2; i < process.argv.length; i++) { const key = process.argv[i].replace(/^--/, ''); const value = process.argv[++i]; if (value !== undefined && key in args) args[key] = key === 'ticks' ? Number(value) : value; }
-const chrome = [process.env.CHROME_PATH, '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find((candidate) => candidate && existsSync(candidate));
+const chrome = [
+  process.env.CHROME_PATH,
+  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+].find((candidate) => candidate && existsSync(candidate));
 
 async function preview() {
-  const child = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4173', '--strictPort', '--outDir', 'dist-agent'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  const outDir = existsSync(path.join(root, 'dist-agent')) ? 'dist-agent' : 'dist';
+  const viteBin = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js');
+  const child = spawn(process.execPath, [viteBin, 'preview', '--host', '127.0.0.1', '--port', '4173', '--strictPort', '--outDir', outDir], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
   const url = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('agent preview did not start')), 30_000);
-    const ready = (chunk) => { const match = String(chunk).match(/https?:\/\/127\.0\.0\.1:\d+/); if (match) { clearTimeout(timer); resolve(match[0]); } };
-    child.stdout.on('data', ready); child.stderr.on('data', ready); child.on('exit', (code) => reject(new Error(`preview exited ${code}`)));
+    const timer = setTimeout(() => reject(new Error('agent preview did not start within 30s')), 30_000);
+    const ready = (chunk) => {
+      const clean = String(chunk).replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+      const match = clean.match(/https?:\/\/127\.0\.0\.1:\d+/);
+      if (match) {
+        clearTimeout(timer);
+        resolve(match[0]);
+      } else if (clean.includes('127.0.0.1:4173') || clean.includes('localhost:4173')) {
+        clearTimeout(timer);
+        resolve('http://127.0.0.1:4173');
+      }
+    };
+    child.stdout.on('data', ready);
+    child.stderr.on('data', ready);
+    child.on('exit', (code) => reject(new Error(`preview exited ${code}`)));
   });
   return { child, url };
 }

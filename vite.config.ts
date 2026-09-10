@@ -14,4 +14,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 4096,
     rollupOptions: { output: { manualChunks: { three: ['three'] } } },
   },
+  define: {
+    'import.meta.env.VITE_ENABLE_AGENT_API': JSON.stringify(process.env.VITE_ENABLE_AGENT_API ?? 'true'),
+  },
 });

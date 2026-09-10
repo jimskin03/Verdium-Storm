@@ -53,6 +53,8 @@ export class Menu {
   private createPassword!: HTMLInputElement;
   private joinCode!: HTMLInputElement;
   private joinPassword!: HTMLInputElement;
+  private spectateCode!: HTMLInputElement;
+  private spectatePassword!: HTMLInputElement;
   private deployButton!: HTMLDivElement;
   private lobbyLaunch!: HTMLDivElement;
   private readonly lobby = new MultiplayerLobby();
@@ -139,6 +141,14 @@ export class Menu {
     this.select('gdi');
     this.lobby.subscribe((snapshot) => this.updateLobby(snapshot));
     this.lobby.onLaunch(() => this.beginDeploy(this.lobby));
+
+    const params = new URLSearchParams(location.search);
+    const spectateParam = params.get('spectate');
+    if (spectateParam) {
+      const passParam = params.get('pass') ?? '';
+      this.setMode('multiplayer', solo, multiplayer);
+      void this.lobby.spectate(spectateParam, passParam);
+    }
   }
 
   private buildLobby(): void {
@@ -175,6 +185,22 @@ export class Menu {
       e.preventDefault();
       e.stopPropagation();
       await this.lobby.join(this.joinCode.value, this.joinPassword.value);
+    });
+
+    const spectate = div('vs-lobby-column', columns);
+    const spectateTitle = el('b', '', spectate);
+    spectateTitle.textContent = 'SPECTATE MATCH';
+    this.spectateCode = this.lobbyInput(spectate, 'ROOM CODE', 'off');
+    this.spectateCode.type = 'text';
+    this.spectateCode.maxLength = 6;
+    this.spectateCode.addEventListener('input', () => { this.spectateCode.value = this.spectateCode.value.toUpperCase(); });
+    this.spectatePassword = this.lobbyInput(spectate, 'ROOM PASSCODE', 'current-password');
+    const spectateButton = div('vs-lobby-action', spectate);
+    spectateButton.textContent = 'SPECTATE AS OBSERVER';
+    spectateButton.addEventListener('pointerdown', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await this.lobby.spectate(this.spectateCode.value, this.spectatePassword.value);
     });
 
     const readout = div('vs-lobby-readout', this.lobbyPanel);
