@@ -1220,19 +1220,19 @@ export class Battlefield implements System, GameStateService, AgentControlServic
     return this.journal.read(this.team, afterEventId, limit);
   }
 
-  async agentCreateRoom(password: string): Promise<LobbySnapshot> {
+  async agentCreateRoom(password: string, name?: string): Promise<LobbySnapshot> {
     this.multiplayer?.close();
     const lobby = new MultiplayerLobby();
-    const connected = await lobby.create(password);
+    const connected = await lobby.create(password, name);
     if (!connected) return lobby.snapshot();
     this.configureMatch(this.playerFaction, lobby);
     return lobby.snapshot();
   }
 
-  async agentJoinRoom(roomCode: string, password: string): Promise<LobbySnapshot> {
+  async agentJoinRoom(roomCode: string, password: string, name?: string): Promise<LobbySnapshot> {
     this.multiplayer?.close();
     const lobby = new MultiplayerLobby();
-    const connected = await lobby.join(roomCode, password);
+    const connected = await lobby.join(roomCode, password, name);
     if (!connected) return lobby.snapshot();
     this.configureMatch(this.playerFaction, lobby);
     return lobby.snapshot();
@@ -1255,12 +1255,27 @@ export class Battlefield implements System, GameStateService, AgentControlServic
       isSpectator: false,
       passcode: '',
       team: 0,
+      playerName: '',
+      connectedPlayers: 0,
+      participants: [
+        { role: 'host', team: 0, name: 'Commander 1', connected: false, ready: false },
+        { role: 'guest', team: 1, name: 'Commander 2', connected: false, ready: false },
+      ],
       message: 'No multiplayer room is connected.',
     };
   }
 
   agentLaunchRoom(): boolean {
     return this.multiplayer?.launch() ?? false;
+  }
+
+  agentSetRoomReady(ready = true): boolean {
+    return this.multiplayer?.setReady(ready) ?? false;
+  }
+
+  agentDisconnectRoom(): void {
+    this.multiplayer?.close();
+    this.multiplayer = null;
   }
 
   agentStart(): void {

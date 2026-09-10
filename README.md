@@ -40,7 +40,14 @@ npm run agent:smoke:headless  # renderer-independent control-plane smoke test
 Choose **2 Player Room** on the main menu. The host creates a room with a
 password and shares the displayed six-character room code plus that password.
 The second commander opens the deployed game from any supported browser or
-device, enters both values, and waits for the host to press **Deploy**.
+device, enters both values, and optionally supplies a callsign. Blank names are
+given stable `Commander 1` / `Commander 2` names by the room service. The room
+shows each commander’s team, connection and readiness; both seats signal ready
+automatically and the match starts as soon as Commander 2 is ready.
+
+Use **DISCONNECT FROM ROOM** to leave deliberately. A dropped browser connection
+is marked disconnected and the same authenticated seat can reconnect for five
+minutes, so a temporary tab/network failure does not destroy the room.
 
 Rooms use Verdium Storm's independent HTTP/WebSocket service in `server/`.
 The server generates room codes, session capabilities, faction assignment and
@@ -87,8 +94,10 @@ agent.command('request-1', { type: 'move', ref: 65537, x: 24, z: -12 });
 await agent.waitFor({ types: ['command_accepted'], timeoutMs: 15000 });
 ```
 
-`createRoom`, `joinRoom`, `spectateRoom`, `launchRoom`, `observe`, `command`,
-`events`, and `waitFor` all use the supported simulation/control interfaces;
+`createRoom(password, name?)`, `joinRoom(code, password, name?)`,
+`roomStatus`, `setRoomReady`, `disconnectRoom`, `spectateRoom`, `launchRoom`,
+`observe`, `command`, `events`, and `waitFor` all use the supported
+simulation/control interfaces;
 they do not expose the engine, renderer, entity stores, or arbitrary evaluation.
 The browser smoke test deliberately disables WebGL when run through
 `agent:smoke:headless`.

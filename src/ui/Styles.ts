@@ -747,6 +747,16 @@ function css(): string {
 .vs-lobby-readout { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
 .vs-lobby-code { flex: none; font-family: var(--font-display); font-size: 9px; letter-spacing: .18em; color: var(--accent-soft); }
 .vs-lobby-status { text-align: right; font-family: var(--font-ui); font-size: 10px; line-height: 1.3; color: var(--ink-dim); }
+.vs-lobby-roster {
+  margin-top: 8px; padding: 7px 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  border: 1px solid rgba(130,174,190,.16); background: rgba(1,4,6,.38);
+  font-family: var(--font-display); font-size: 8px; letter-spacing: .08em; color: #9eb6bf;
+}
+.vs-lobby-disconnect {
+  margin-top: 8px; text-align: center; cursor: pointer; color: #b97a70;
+  font-family: var(--font-display); font-size: 8px; letter-spacing: .16em; text-indent: .16em;
+}
+.vs-lobby-disconnect:hover { color: #ff9a87; }
 .vs-lobby-launch {
   display: none; margin-top: 12px; height: 42px; align-items: center; justify-content: center; cursor: pointer;
   font-family: var(--font-display); font-size: 12px; letter-spacing: .28em; text-indent: .28em; color: #100a00;

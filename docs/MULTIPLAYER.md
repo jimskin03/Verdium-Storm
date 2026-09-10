@@ -38,14 +38,16 @@ server, create an untracked `.env.local` based on `.env.example` and set
 
 ### `POST /api/rooms`
 
-Accepts `{ "password": string }`. The server creates a room and returns an
-opaque host session capability, room code, team `0`, and match seed.
+Accepts `{ "password": string, "name"?: string }`. The server creates a room
+and returns an opaque host session capability, generated or supplied callsign,
+room code, team `0`, and match seed.
 
 ### `POST /api/rooms/:roomCode/join`
 
-Accepts `{ "password": string }`. A valid second commander receives a distinct
-opaque session capability, team `1`, and the same seed. Missing rooms, full
-rooms, and incorrect passwords deliberately return the same generic response.
+Accepts `{ "password": string, "name"?: string }`. A valid second commander
+receives a distinct opaque session capability, generated or supplied callsign,
+team `1`, and the same seed. Missing rooms, full rooms, and incorrect passwords
+deliberately return the same generic response.
 
 ### `GET /healthz`
 
@@ -64,8 +66,14 @@ Clients connect to `/ws` and authenticate in the first message:
 }
 ```
 
-The server then sends role-specific `room_snapshot` messages. The host can send
-`launch` after two authenticated commanders are connected. Gameplay uses:
+The server then sends role-specific `room_snapshot` messages. Each snapshot
+contains both commander names, teams, `connected`, and `ready` flags. Clients
+send `{ "type": "ready", "ready": true }` after authentication; when both
+commanders are connected and ready, the server changes the room to `launched`
+and broadcasts that transition. `launch` remains accepted as a backwards-
+compatible host request, but new clients do not require a manual deploy click.
+
+Gameplay uses:
 
 ```json
 {
@@ -94,6 +102,10 @@ shape, enum values, entity-array limits and world-coordinate bounds.
 - Binary frames, malformed JSON, unknown messages and unexpected fields are
   rejected.
 - Heartbeats remove dead sockets; slow-client backpressure is bounded.
+- An unexpected socket drop marks that commander disconnected, broadcasts the
+  roster, and keeps the authenticated seat resumable for five minutes. A client
+  reconnects with the same session capability. The explicit `leave` message
+  closes the room for the other commander.
 - Logs exclude passwords, capabilities, and gameplay payloads.
 
 Set `ALLOWED_ORIGINS` to exact comma-separated frontend origins. Add explicit
@@ -107,8 +119,9 @@ connectivity for small private matches. It deliberately has these constraints:
 
 - Rooms are ephemeral and disappear when the free service sleeps, restarts, or
   redeploys.
-- A disconnect closes the room for both commanders. Reconnect/resume is not yet
-  implemented.
+- A deliberate disconnect closes the room for the other commander; transient
+  browser or network loss leaves a resumable seat and a disconnected roster
+  entry.
 - The server validates and sequences command payloads but does not run the RTS
   simulation. Existing clients still apply local commands immediately and
   receive remote commands after network latency.
@@ -128,5 +141,6 @@ move authoritative simulation rules server-side where practical.
 3. Set `VITE_MULTIPLAYER_SERVER_URL` in the Vercel project to the Render HTTPS
    origin (no `/ws` suffix).
 4. Redeploy the frontend so Vite embeds the public server origin.
-5. Exercise create → join from two independent browser contexts, host launch,
-   one action in each direction, and disconnect cleanup.
+5. Exercise create → join from two independent browser contexts, verify the
+   names/team roster, wait for automatic start when Commander 2 is ready, send
+   one action in each direction, and test both deliberate leave and reconnect.

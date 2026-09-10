@@ -10,7 +10,7 @@ import type { System } from '@/engine/System';
 
 const AGENT_CAPABILITIES = [
   'observe', 'command', 'events', 'waitFor',
-  'createRoom', 'joinRoom', 'spectateRoom', 'roomStatus', 'launchRoom',
+  'createRoom', 'joinRoom', 'spectateRoom', 'roomStatus', 'launchRoom', 'setRoomReady', 'disconnectRoom',
   'start', 'step',
 ];
 
@@ -53,6 +53,8 @@ export function installAgentBootstrap(): void {
     spectateRoom: async () => fail(),
     roomStatus: fail,
     launchRoom: fail,
+    setRoomReady: fail,
+    disconnectRoom: fail,
     getSpectatorInfo: fail,
     start: fail,
     step: fail,
@@ -135,11 +137,13 @@ export function installAgentBridge(engine: AgentBridgeHost): void {
         });
       });
     },
-    createRoom: (password: string) => game.agentCreateRoom(password),
-    joinRoom: (roomCode: string, password: string) => game.agentJoinRoom(roomCode, password),
+    createRoom: (password: string, name?: string) => game.agentCreateRoom(password, name),
+    joinRoom: (roomCode: string, password: string, name?: string) => game.agentJoinRoom(roomCode, password, name),
     spectateRoom: (roomCode: string, password: string) => game.agentSpectateRoom(roomCode, password),
     roomStatus: () => game.agentRoomStatus(),
     launchRoom: () => game.agentLaunchRoom(),
+    setRoomReady: (ready = true) => game.agentSetRoomReady(ready),
+    disconnectRoom: () => game.agentDisconnectRoom(),
     start: () => {
       game.agentStart();
       engine.start?.();
@@ -162,9 +166,12 @@ export function installAgentBridge(engine: AgentBridgeHost): void {
       'Agent API bridge installed on window.VS_AGENT.\n' +
       'Methods:\n' +
       ' • VS_AGENT.capabilities()        -> List the stable control-plane methods\n' +
-      ' • VS_AGENT.createRoom(password)  -> Create and connect a multiplayer room\n' +
-      ' • VS_AGENT.joinRoom(code, pass)  -> Join and connect a multiplayer room\n' +
-      ' • VS_AGENT.launchRoom()          -> Deploy a ready host room\n' +
+      ' • VS_AGENT.createRoom(password, name?) -> Create and connect a multiplayer room\n' +
+      ' • VS_AGENT.joinRoom(code, pass, name?) -> Join and connect a multiplayer room\n' +
+      ' • VS_AGENT.roomStatus()          -> Read both commander names, teams, connection and readiness\n' +
+      ' • VS_AGENT.setRoomReady(true)    -> Signal readiness (normally automatic)\n' +
+      ' • VS_AGENT.disconnectRoom()      -> Leave the room cleanly\n' +
+      ' • VS_AGENT.launchRoom()          -> Legacy host launch request; ready rooms auto-start\n' +
       ' • VS_AGENT.observe()              -> Read tactical state (units, production, resources, spectator info)\n' +
       ' • VS_AGENT.command(reqId, action) -> Issue normalized player orders with granular error codes\n' +
       ' • VS_AGENT.events(afterId, limit) -> Read event journal\n' +

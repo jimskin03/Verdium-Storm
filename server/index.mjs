@@ -19,6 +19,7 @@ const MAX_BUFFERED_BYTES = 1024 * 1024;
 const WORLD_LIMIT = 512;
 const MAX_REFS = 512;
 const MAX_RALLIES = 128;
+const MAX_PLAYER_NAME_LENGTH = 24;
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,128}$/;
 const BUILDABLE_IDS = new Set([
@@ -38,7 +39,7 @@ export function createVerdiumServer(options = {}) {
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? numberFromEnv('HEARTBEAT_INTERVAL_MS', 30_000);
   const authTimeoutMs = options.authTimeoutMs ?? 10_000;
   const maxHttpAttemptsPerMinute = options.maxHttpAttemptsPerMinute ?? 30;
-  const sessionReservationMs = options.sessionReservationMs ?? numberFromEnv('SESSION_RESERVATION_MS', 30_000);
+  const sessionReservationMs = options.sessionReservationMs ?? numberFromEnv('SESSION_RESERVATION_MS', 5 * 60_000);
   const maxRooms = options.maxRooms ?? numberFromEnv('MAX_ROOMS', 100);
   const maxSockets = options.maxSockets ?? numberFromEnv('MAX_SOCKETS', maxRooms * 2 + 16);
   const maxConcurrentPasswordOps = options.maxConcurrentPasswordOps ?? numberFromEnv('MAX_CONCURRENT_PASSWORD_OPS', 4);
@@ -95,7 +96,7 @@ export function createVerdiumServer(options = {}) {
         }
         const code = createUniqueRoomCode(rooms);
         const passwordRecord = await runPasswordOperation(() => hashPassword(body.password));
-        const hostSession = createSession('host', sessionReservationMs);
+        const hostSession = createSession('host', sessionReservationMs, body.name);
         const room = {
           code,
           seed: randomInt(0, 0x1_0000_0000),
@@ -124,10 +125,11 @@ export function createVerdiumServer(options = {}) {
         const passwordMatches = await runPasswordOperation(() => room
           ? verifyPassword(password, room.passwordRecord)
           : consumeDummyPasswordCheck(password));
-        if (!room || room.players.guest || room.state !== 'waiting' || !passwordMatches) {
+        if (!room || room.players.guest
+          || room.state !== 'waiting' || !passwordMatches) {
           return roomUnavailable(response);
         }
-        const guestSession = createSession('guest', sessionReservationMs);
+        const guestSession = createSession('guest', sessionReservationMs, body.name);
         room.players.guest = guestSession.player;
         room.lastActivity = Date.now();
         return sendJson(response, 200, sessionResponse(room, 'guest', guestSession.token));
@@ -179,6 +181,7 @@ export function createVerdiumServer(options = {}) {
     const state = {
       room: null,
       role: null,
+      explicitLeave: false,
       alive: true,
       windowStartedAt: Date.now(),
       messagesInWindow: 0,
@@ -213,7 +216,19 @@ export function createVerdiumServer(options = {}) {
         if (state.token && state.room.spectators) state.room.spectators.delete(state.token);
         return;
       }
-      destroyRoom(state.room, rooms, socket, 'PEER_DISCONNECTED');
+      const player = state.room.players[state.role];
+      if (player?.socket === socket) {
+        player.socket = null;
+        player.ready = false;
+        player.reservedUntil = Date.now() + sessionReservationMs;
+      }
+      if (state.explicitLeave) {
+        destroyRoom(state.room, rooms, socket, 'PLAYER_LEFT');
+        return;
+      }
+      updateRoomState(state.room);
+      notifyPeerDisconnected(state.room, state.role);
+      broadcastSnapshots(state.room);
     });
   });
 
@@ -299,13 +314,10 @@ async function authenticateSocket(socket, state, message, rooms) {
   state.token = message.sessionToken;
   player.socket = socket;
   player.reservedUntil = null;
+  player.ready = false;
+  player.connectedOnce = true;
   room.lastActivity = Date.now();
-  if (room.state !== 'launched') {
-    room.state = room.players.host.socket?.readyState === WebSocket.OPEN
-      && room.players.guest?.socket?.readyState === WebSocket.OPEN
-      ? 'ready'
-      : 'waiting';
-  }
+  updateRoomState(room);
   broadcastSnapshots(room);
 }
 
@@ -314,7 +326,10 @@ function handleAuthenticatedMessage(socket, state, message, rooms) {
   room.lastActivity = Date.now();
 
   if (message?.type === 'leave' && isExactObject(message, ['type'])) {
-    return closeSocket(socket, 1000, state.role === 'spectator' ? 'Spectator left' : 'Commander left');
+    if (state.role === 'spectator') return closeSocket(socket, 1000, 'Spectator left');
+    state.explicitLeave = true;
+    destroyRoom(room, rooms, socket, 'PLAYER_LEFT');
+    return closeSocket(socket, 1000, 'Commander left');
   }
 
   if (state.role === 'spectator') {
@@ -323,12 +338,31 @@ function handleAuthenticatedMessage(socket, state, message, rooms) {
 
   const player = room.players[state.role];
 
+  if (message?.type === 'identify') {
+    if (!isExactObject(message, ['type', 'name'])) {
+      return sendError(socket, 'MESSAGE_INVALID', 'Identity payload is invalid.');
+    }
+    player.name = normalizePlayerName(message.name, player.role);
+    broadcastSnapshots(room);
+    return;
+  }
+
+  if (message?.type === 'ready') {
+    if (!isExactObject(message, ['type', 'ready']) || typeof message.ready !== 'boolean') {
+      return sendError(socket, 'MESSAGE_INVALID', 'Ready payload is invalid.');
+    }
+    player.ready = message.ready;
+    updateRoomState(room);
+    broadcastSnapshots(room);
+    return;
+  }
+
   if (message?.type === 'launch') {
     if (!isExactObject(message, ['type', 'requestId']) || !validRequestId(message.requestId)) {
       return sendError(socket, 'MESSAGE_INVALID', 'Launch request is invalid.');
     }
     if (state.role !== 'host') return sendError(socket, 'HOST_ONLY', 'Only Commander 1 can deploy the match.');
-    if (room.state !== 'ready') return sendError(socket, 'ROOM_NOT_READY', 'Both commanders must be connected before deployment.');
+    if (room.state !== 'ready') return sendError(socket, 'ROOM_NOT_READY', 'Both commanders must be connected and ready.');
     room.state = 'launched';
     broadcastSnapshots(room);
     return;
@@ -364,7 +398,7 @@ function handleAuthenticatedMessage(socket, state, message, rooms) {
     const peerRole = state.role === 'host' ? 'guest' : 'host';
     const peer = room.players[peerRole];
     if (!peer?.socket || peer.socket.readyState !== WebSocket.OPEN) {
-      return destroyRoom(room, rooms, socket, 'PEER_DISCONNECTED');
+      return sendError(socket, 'PEER_DISCONNECTED', 'The other commander is disconnected. Waiting for reconnection.');
     }
     const serverSequence = room.nextSequence++;
     player.nextClientSequence++;
@@ -378,7 +412,12 @@ function handleAuthenticatedMessage(socket, state, message, rooms) {
       action: message.action,
     };
     if (!safeSend(peer.socket, relayed)) {
-      return destroyRoom(room, rooms, socket, 'PEER_DISCONNECTED');
+      peer.socket = null;
+      peer.ready = false;
+      peer.reservedUntil = Date.now() + sessionReservationMs;
+      updateRoomState(room);
+      broadcastSnapshots(room);
+      return sendError(socket, 'PEER_DISCONNECTED', 'The other commander is disconnected. Waiting for reconnection.');
     }
     if (room.spectators) {
       const spectatorRelay = {
@@ -447,15 +486,18 @@ function validateAction(action) {
   return false;
 }
 
-function createSession(role, reservationMs) {
+function createSession(role, reservationMs, requestedName = '') {
   const token = randomBytes(32).toString('base64url');
   return {
     token,
     player: {
       role,
+      name: normalizePlayerName(requestedName, role),
       tokenHash: hashToken(token),
       socket: null,
       reservedUntil: Date.now() + reservationMs,
+      ready: false,
+      connectedOnce: false,
       nextClientSequence: 1,
       requests: new Map(),
     },
@@ -472,6 +514,8 @@ function sessionResponse(room, role, token) {
     team: role === 'host' ? 0 : role === 'guest' ? 1 : 2,
     seed: room.seed,
     state: room.state,
+    playerName: room.players[role]?.name ?? 'Observer',
+    participants: participantsFor(room),
   };
 }
 
@@ -489,7 +533,19 @@ function broadcastSnapshots(room) {
   }
 }
 
+function notifyPeerDisconnected(room, disconnectedRole) {
+  const peerRole = disconnectedRole === 'host' ? 'guest' : 'host';
+  const peer = room.players[peerRole];
+  if (!peer?.socket || peer.socket.readyState !== WebSocket.OPEN) return;
+  safeSend(peer.socket, {
+    type: 'room_closed',
+    code: 'PEER_DISCONNECTED',
+    message: 'The other commander disconnected. Create a new room to continue.',
+  });
+}
+
 function snapshotFor(room, role) {
+  const player = room.players[role];
   return {
     type: 'room_snapshot',
     protocolVersion: PROTOCOL_VERSION,
@@ -499,9 +555,45 @@ function snapshotFor(room, role) {
     isSpectator: role === 'spectator',
     team: role === 'host' ? 0 : role === 'guest' ? 1 : 2,
     seed: room.seed,
-    connectedPlayers: Number(room.players.host.socket?.readyState === WebSocket.OPEN)
-      + Number(room.players.guest?.socket?.readyState === WebSocket.OPEN),
+    playerName: player?.name ?? 'Observer',
+    connectedPlayers: participantsFor(room).filter((participant) => participant.connected).length,
+    participants: participantsFor(room),
   };
+}
+
+function participantsFor(room) {
+  return ['host', 'guest'].map((role) => {
+    const player = room.players[role];
+    return {
+      role,
+      team: role === 'host' ? 0 : 1,
+      name: player?.name ?? `Commander ${role === 'host' ? 1 : 2}`,
+      connected: !!player?.socket && player.socket.readyState === WebSocket.OPEN,
+      ready: !!player?.ready,
+    };
+  });
+}
+
+function updateRoomState(room) {
+  if (room.state === 'launched') return;
+  const host = room.players.host;
+  const guest = room.players.guest;
+  const bothConnected = !!host?.socket && host.socket.readyState === WebSocket.OPEN
+    && !!guest?.socket && guest.socket.readyState === WebSocket.OPEN;
+  if (bothConnected && host.ready && guest.ready) {
+    room.state = 'launched';
+  } else if (bothConnected) {
+    room.state = 'ready';
+  } else {
+    room.state = 'waiting';
+  }
+}
+
+function normalizePlayerName(value, role) {
+  const fallback = `Commander ${role === 'host' ? 1 : role === 'guest' ? 2 : 'Observer'}`;
+  if (typeof value !== 'string') return fallback;
+  const name = value.trim().replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').slice(0, MAX_PLAYER_NAME_LENGTH);
+  return name || fallback;
 }
 
 function destroyRoom(room, rooms, sourceSocket, code) {
@@ -510,6 +602,8 @@ function destroyRoom(room, rooms, sourceSocket, code) {
   rooms.delete(room.code);
   const message = code === 'ROOM_EXPIRED'
     ? { type: 'room_closed', code, message: 'The inactive room expired. Create a new room to continue.' }
+    : code === 'PLAYER_LEFT'
+      ? { type: 'room_closed', code, message: 'A commander disconnected from the room.' }
     : { type: 'room_closed', code, message: 'The other commander disconnected. Create a new room to continue.' };
   for (const role of ['host', 'guest']) {
     const player = room.players[role];

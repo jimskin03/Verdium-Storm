@@ -22,7 +22,18 @@ export interface LobbySnapshot {
   isSpectator?: boolean;
   passcode?: string;
   team: Team;
+  playerName: string;
+  connectedPlayers: number;
+  participants: LobbyParticipant[];
   message: string;
+}
+
+export interface LobbyParticipant {
+  role: 'host' | 'guest';
+  team: 0 | 1;
+  name: string;
+  connected: boolean;
+  ready: boolean;
 }
 
 interface MultiplayerLobbyOptions {
@@ -46,6 +57,8 @@ type SessionResponse = {
   isSpectator?: boolean;
   team: Team;
   seed: number;
+  playerName?: string;
+  participants?: LobbyParticipant[];
 };
 
 type RoomSnapshotMessage = {
@@ -58,6 +71,8 @@ type RoomSnapshotMessage = {
   team: Team;
   seed: number;
   connectedPlayers: number;
+  playerName?: string;
+  participants?: LobbyParticipant[];
 };
 
 type WireMessage =
@@ -72,6 +87,10 @@ const PASSWORD_MIN_BYTES = 8;
 const PASSWORD_MAX_BYTES = 64;
 const SOCKET_OPEN = 1;
 const PRODUCTION_SERVER_URL = 'https://verdium-storm.onrender.com';
+const DEFAULT_PARTICIPANTS: LobbyParticipant[] = [
+  { role: 'host', team: 0, name: 'Commander 1', connected: false, ready: false },
+  { role: 'guest', team: 1, name: 'Commander 2', connected: false, ready: false },
+];
 
 /**
  * A two-commander lobby backed by Verdium's independent room server. HTTP owns
@@ -97,6 +116,13 @@ export class MultiplayerLobby {
   private _passcode = '';
   private _team: Team | 2 = 0;
   private _seed = 0;
+  private _playerName = '';
+  private _connectedPlayers = 0;
+  private _participants: LobbyParticipant[] = DEFAULT_PARTICIPANTS.map((participant) => ({ ...participant }));
+  private _session: SessionResponse | null = null;
+  private _readySent = false;
+  private reconnectTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  private reconnectAttempts = 0;
   private _message = 'Create a room or join an existing two-player room.';
 
   constructor(options: MultiplayerLobbyOptions = {}) {
@@ -114,8 +140,10 @@ export class MultiplayerLobby {
   get passcode(): string { return this._passcode; }
   get team(): Team | 2 { return this._team; }
   get seed(): number { return this._seed; }
-  get isReady(): boolean { return this._state === 'ready'; }
+  get isReady(): boolean { return this._state === 'ready' || this._state === 'launched'; }
   get isLaunched(): boolean { return this._state === 'launched'; }
+  get playerName(): string { return this._playerName; }
+  get participants(): LobbyParticipant[] { return this._participants.map((participant) => ({ ...participant })); }
 
   snapshot(): LobbySnapshot {
     return {
@@ -125,6 +153,9 @@ export class MultiplayerLobby {
       isSpectator: this._isSpectator,
       passcode: this._passcode,
       team: (this._team === 2 ? 0 : this._team) as Team,
+      playerName: this._playerName,
+      connectedPlayers: this._connectedPlayers,
+      participants: this.participants,
       message: this._message,
     };
   }
@@ -154,7 +185,7 @@ export class MultiplayerLobby {
     };
   }
 
-  async create(password: string): Promise<boolean> {
+  async create(password: string, name = ''): Promise<boolean> {
     if (!validPassword(password)) {
       this.setState('error', `Use a room password between ${PASSWORD_MIN_BYTES} and ${PASSWORD_MAX_BYTES} UTF-8 bytes.`);
       return false;
@@ -165,7 +196,7 @@ export class MultiplayerLobby {
     const controller = new AbortController();
     this.requestController = controller;
     this.setState('joining', 'Creating secure network room…');
-    const session = await this.roomRequest('/api/rooms', password, controller.signal);
+    const session = await this.roomRequest('/api/rooms', password, name, controller.signal);
     if (generation !== this.connectionGeneration) return false;
     this.requestController = null;
     if (!session) return false;
@@ -173,7 +204,7 @@ export class MultiplayerLobby {
     return this.connect(session, generation);
   }
 
-  async join(roomCode: string, password: string): Promise<boolean> {
+  async join(roomCode: string, password: string, name = ''): Promise<boolean> {
     const normalizedRoom = roomCode.trim().toUpperCase();
     if (!/^[A-HJ-NP-Z2-9]{6}$/.test(normalizedRoom)) {
       this.setState('error', 'Enter the six-character room code from the host.');
@@ -189,7 +220,7 @@ export class MultiplayerLobby {
     const controller = new AbortController();
     this.requestController = controller;
     this.setState('joining', `Connecting to room ${normalizedRoom}…`);
-    const session = await this.roomRequest(`/api/rooms/${normalizedRoom}/join`, password, controller.signal);
+    const session = await this.roomRequest(`/api/rooms/${normalizedRoom}/join`, password, name, controller.signal);
     if (generation !== this.connectionGeneration) return false;
     this.requestController = null;
     if (!session) return false;
@@ -213,7 +244,7 @@ export class MultiplayerLobby {
     const controller = new AbortController();
     this.requestController = controller;
     this.setState('joining', `Connecting to spectate room ${normalizedRoom}…`);
-    const session = await this.roomRequest(`/api/rooms/${normalizedRoom}/spectate`, password, controller.signal);
+    const session = await this.roomRequest(`/api/rooms/${normalizedRoom}/spectate`, password, '', controller.signal);
     if (generation !== this.connectionGeneration) return false;
     this.requestController = null;
     if (!session) return false;
@@ -224,8 +255,13 @@ export class MultiplayerLobby {
 
   /** Only the room creator can launch once both command slots are occupied. */
   launch(): boolean {
+    if (this.isLaunched) return true;
     if (!this._isHost || !this.isReady) return false;
     return this.send({ type: 'launch', requestId: makeId(20) });
+  }
+
+  setReady(ready = true): boolean {
+    return this.send({ type: 'ready', ready });
   }
 
   sendAction(action: MultiplayerAction): void {
@@ -240,8 +276,12 @@ export class MultiplayerLobby {
   }
 
   close(): void {
-    if (this.socket?.readyState === SOCKET_OPEN) this.send({ type: 'leave' });
-    this.resetConnection();
+    const socket = this.socket;
+    if (socket?.readyState === SOCKET_OPEN) {
+      this.send({ type: 'leave' });
+      globalThis.setTimeout(() => socket.close(1000, 'Commander left'), 50);
+    }
+    this.resetConnection(socket?.readyState === SOCKET_OPEN ? false : true);
     this.setState('idle', 'Create a room or join an existing two-player room.');
   }
 
@@ -257,7 +297,7 @@ export class MultiplayerLobby {
     return true;
   }
 
-  private async roomRequest(path: string, password: string, signal: AbortSignal): Promise<SessionResponse | null> {
+  private async roomRequest(path: string, password: string, name: string, signal: AbortSignal): Promise<SessionResponse | null> {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       if (signal.aborted) return null;
@@ -265,7 +305,7 @@ export class MultiplayerLobby {
         const response = await this.fetchImpl!(`${this.serverUrl}${path}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ password }),
+          body: JSON.stringify({ password, name }),
           signal,
         });
         const body = await response.json() as Partial<SessionResponse> & { message?: string };
@@ -288,11 +328,15 @@ export class MultiplayerLobby {
 
   private connect(session: SessionResponse, generation: number): Promise<boolean> {
     if (generation !== this.connectionGeneration) return Promise.resolve(false);
+    this._readySent = false;
     this._roomCode = session.roomCode;
     this._isHost = session.isHost;
     this._isSpectator = !!session.isSpectator;
     this._team = session.team;
     this._seed = session.seed;
+    this._playerName = session.playerName ?? (session.isHost ? 'Commander 1' : 'Commander 2');
+    this._participants = session.participants?.map((participant) => ({ ...participant })) ?? this._participants;
+    this._session = session;
     this.nextClientSequence = 1;
     return new Promise((resolve) => {
       let settled = false;
@@ -342,7 +386,13 @@ export class MultiplayerLobby {
         if (!('data' in event)) return;
         const message = parseWireMessage(event.data);
         if (!message) return;
-        if (message.type === 'room_snapshot') finish(true);
+        if (message.type === 'room_snapshot') {
+          finish(true);
+          if (!this._readySent) {
+            this._readySent = true;
+            this.setReady(true);
+          }
+        }
         this.handleMessage(message);
       });
       socket.addEventListener('error', () => {
@@ -361,9 +411,7 @@ export class MultiplayerLobby {
           return;
         }
         this.socket = null;
-        if (this._state !== 'idle' && this._state !== 'error') {
-          this.setState('error', 'The multiplayer connection closed. Create a new room to continue.');
-        }
+        if (this._state !== 'idle' && this._state !== 'error' && !this._isSpectator) this.scheduleReconnect();
         finish(false);
       });
     });
@@ -376,6 +424,9 @@ export class MultiplayerLobby {
       this._isSpectator = !!message.isSpectator;
       this._team = message.team;
       this._seed = message.seed;
+      this._playerName = message.playerName ?? this._playerName;
+      this._connectedPlayers = message.connectedPlayers;
+      this._participants = message.participants?.map((participant) => ({ ...participant })) ?? this._participants;
       if (this._isSpectator) {
         if (message.state === 'launched') {
           if (this._state !== 'launched') this.launchLocal();
@@ -386,11 +437,10 @@ export class MultiplayerLobby {
         return;
       }
       if (message.state === 'waiting') {
-        this.setState('waiting', `Room ${this._roomCode} is online. Waiting for Commander 2.`);
+        const missing = this._participants.find((participant) => !participant.connected);
+        this.setState('waiting', missing ? `Waiting for ${missing.name} to connect.` : 'Waiting for both commanders to ready up.');
       } else if (message.state === 'ready') {
-        this.setState('ready', this._isHost
-          ? 'Commander 2 connected. Press DEPLOY MATCH in the room panel to start.'
-          : 'Connected as Commander 2. Awaiting host deployment order.');
+        this.setState('ready', 'Both commanders are connected. Starting automatically when ready.');
       } else if (this._state !== 'launched') {
         this.launchLocal();
       }
@@ -401,6 +451,10 @@ export class MultiplayerLobby {
       return;
     }
     if (message.type === 'room_closed') {
+      if (message.code === 'PEER_DISCONNECTED' && this._state !== 'idle') {
+        this.setState('waiting', `${message.message} Reconnection is available for this seat.`);
+        return;
+      }
       this.setState('error', message.message);
       return;
     }
@@ -416,18 +470,26 @@ export class MultiplayerLobby {
     return true;
   }
 
-  private resetConnection(): void {
+  private resetConnection(closeSocket = true): void {
     this.requestController?.abort();
     this.requestController = null;
     this.connectionGeneration++;
-    this.socket?.close(1000, 'Lobby reset');
+    if (closeSocket) this.socket?.close(1000, 'Lobby reset');
     this.socket = null;
+    if (this.reconnectTimer) globalThis.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
     this._roomCode = '';
     this._isHost = false;
     this._isSpectator = false;
     this._passcode = '';
     this._team = 0;
     this._seed = 0;
+    this._playerName = '';
+    this._connectedPlayers = 0;
+    this._participants = DEFAULT_PARTICIPANTS.map((participant) => ({ ...participant }));
+    this._session = null;
+    this._readySent = false;
     this.nextClientSequence = 1;
   }
 
@@ -441,6 +503,22 @@ export class MultiplayerLobby {
     this._message = message;
     const snapshot = this.snapshot();
     for (const handler of this.stateHandlers) handler(snapshot);
+  }
+
+  private scheduleReconnect(): void {
+    if (!this._session || this.reconnectTimer || this._state === 'idle') return;
+    const delay = Math.min(10_000, 750 * (2 ** this.reconnectAttempts));
+    this.reconnectAttempts++;
+    this.setState('joining', `Connection lost. Reconnecting to room ${this._roomCode}…`);
+    this.reconnectTimer = globalThis.setTimeout(() => {
+      this.reconnectTimer = null;
+      const session = this._session;
+      if (!session) return;
+      void this.connect(session, this.connectionGeneration).then((connected) => {
+        if (connected) this.reconnectAttempts = 0;
+        else if (this._state !== 'idle') this.scheduleReconnect();
+      });
+    }, delay);
   }
 }
 
@@ -494,6 +572,8 @@ function validSession(value: Partial<SessionResponse>): value is SessionResponse
     && /^[A-Za-z0-9_-]{40,128}$/.test(value.sessionToken)
     && typeof value.isHost === 'boolean'
     && (value.team === 0 || value.team === 1 || value.team === 2)
+    && (value.playerName === undefined || typeof value.playerName === 'string')
+    && (value.participants === undefined || Array.isArray(value.participants))
     && Number.isInteger(value.seed)
     && value.seed! >= 0
     && value.seed! <= 0xffffffff;

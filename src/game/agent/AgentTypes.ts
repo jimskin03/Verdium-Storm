@@ -174,11 +174,13 @@ export interface AgentBridgeApi {
   command: (requestId: string, action: AgentCommand) => CommandAck;
   events: (afterEventId?: number, limit?: number) => GameEvent[];
   waitFor: (options?: WaitForOptions) => Promise<GameEvent | null>;
-  createRoom: (password: string) => Promise<LobbySnapshot>;
-  joinRoom: (roomCode: string, password: string) => Promise<LobbySnapshot>;
+  createRoom: (password: string, name?: string) => Promise<LobbySnapshot>;
+  joinRoom: (roomCode: string, password: string, name?: string) => Promise<LobbySnapshot>;
   spectateRoom: (roomCode: string, password: string) => Promise<LobbySnapshot>;
   roomStatus: () => LobbySnapshot;
   launchRoom: () => boolean;
+  setRoomReady: (ready?: boolean) => boolean;
+  disconnectRoom: () => void;
   getSpectatorInfo: () => SpectatorInfo;
   start: () => void;
   step: (ticks: number) => void;
@@ -191,11 +193,13 @@ export interface AgentControlService {
   agentStart(): void;
   agentFrameDt(): number;
   agentStep(ticks: number): void;
-  agentCreateRoom(password: string): Promise<LobbySnapshot>;
-  agentJoinRoom(roomCode: string, password: string): Promise<LobbySnapshot>;
+  agentCreateRoom(password: string, name?: string): Promise<LobbySnapshot>;
+  agentJoinRoom(roomCode: string, password: string, name?: string): Promise<LobbySnapshot>;
   agentSpectateRoom(roomCode: string, password: string): Promise<LobbySnapshot>;
   agentRoomStatus(): LobbySnapshot;
   agentLaunchRoom(): boolean;
+  agentSetRoomReady(ready?: boolean): boolean;
+  agentDisconnectRoom(): void;
   getSpectatorInfo(): SpectatorInfo;
   onJournalEvent(listener: (event: GameEvent) => void): () => void;
 }

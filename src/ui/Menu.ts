@@ -49,10 +49,13 @@ export class Menu {
   private mode: 'solo' | 'multiplayer' = 'solo';
   private lobbyPanel!: HTMLDivElement;
   private lobbyStatus!: HTMLDivElement;
+  private lobbyRoster!: HTMLDivElement;
   private lobbyCode!: HTMLDivElement;
   private createPassword!: HTMLInputElement;
+  private createName!: HTMLInputElement;
   private joinCode!: HTMLInputElement;
   private joinPassword!: HTMLInputElement;
+  private joinName!: HTMLInputElement;
   private spectateCode!: HTMLInputElement;
   private spectatePassword!: HTMLInputElement;
   private deployButton!: HTMLDivElement;
@@ -162,13 +165,16 @@ export class Menu {
     const create = div('vs-lobby-column', columns);
     const createTitle = el('b', '', create);
     createTitle.textContent = 'CREATE ROOM';
+    this.createName = this.lobbyInput(create, 'COMMANDER NAME (OPTIONAL)', 'nickname');
+    this.createName.type = 'text';
+    this.createName.maxLength = 24;
     this.createPassword = this.lobbyInput(create, 'ROOM PASSWORD', 'new-password');
     const createButton = div('vs-lobby-action', create);
     createButton.textContent = 'CREATE SECURE ROOM';
     createButton.addEventListener('pointerdown', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      await this.lobby.create(this.createPassword.value);
+      await this.lobby.create(this.createPassword.value, this.createName.value);
     });
 
     const join = div('vs-lobby-column', columns);
@@ -179,12 +185,15 @@ export class Menu {
     this.joinCode.maxLength = 6;
     this.joinCode.addEventListener('input', () => { this.joinCode.value = this.joinCode.value.toUpperCase(); });
     this.joinPassword = this.lobbyInput(join, 'ROOM PASSWORD', 'current-password');
+    this.joinName = this.lobbyInput(join, 'COMMANDER NAME (OPTIONAL)', 'nickname');
+    this.joinName.type = 'text';
+    this.joinName.maxLength = 24;
     const joinButton = div('vs-lobby-action', join);
     joinButton.textContent = 'JOIN WITH PASSWORD';
     joinButton.addEventListener('pointerdown', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      await this.lobby.join(this.joinCode.value, this.joinPassword.value);
+      await this.lobby.join(this.joinCode.value, this.joinPassword.value, this.joinName.value);
     });
 
     const spectate = div('vs-lobby-column', columns);
@@ -208,6 +217,7 @@ export class Menu {
     this.lobbyStatus = div('vs-lobby-status', readout);
     this.lobbyStatus.setAttribute('role', 'status');
     this.lobbyStatus.setAttribute('aria-live', 'polite');
+    this.lobbyRoster = div('vs-lobby-roster', this.lobbyPanel);
 
     this.lobbyLaunch = div('vs-lobby-launch', this.lobbyPanel);
     this.lobbyLaunch.textContent = 'DEPLOY MATCH';
@@ -217,6 +227,14 @@ export class Menu {
       e.preventDefault();
       e.stopPropagation();
       this.requestDeploy();
+    });
+    const disconnect = div('vs-lobby-disconnect', this.lobbyPanel);
+    disconnect.textContent = 'DISCONNECT FROM ROOM';
+    disconnect.setAttribute('role', 'button');
+    disconnect.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.lobby.close();
     });
   }
 
@@ -265,13 +283,14 @@ export class Menu {
     if (!this.lobbyStatus) return;
     this.lobbyStatus.textContent = snapshot.message;
     this.lobbyCode.textContent = snapshot.roomCode ? `ROOM CODE  ${snapshot.roomCode}` : 'ROOM CODE  — — — — — —';
-    const canLaunch = snapshot.isHost && snapshot.state === 'ready';
-    this.deployButton?.classList.toggle('armed', canLaunch || this.mode === 'solo');
-    this.deployButton.textContent = canLaunch ? 'DEPLOY MATCH' : 'DEPLOY';
-    setClass(this.lobbyLaunch, 'on', canLaunch);
-    if (canLaunch) {
-      this.lobbyStatus.textContent = 'Commander 2 is connected. Press DEPLOY MATCH below to start.';
-      this.lobbyLaunch.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const canLaunch = this.mode === 'solo';
+    this.deployButton?.classList.toggle('armed', canLaunch);
+    this.deployButton.textContent = 'DEPLOY';
+    setClass(this.lobbyLaunch, 'on', false);
+    if (this.lobbyRoster) {
+      this.lobbyRoster.textContent = snapshot.participants
+        .map((participant) => `${participant.name} · TEAM ${participant.team + 1} · ${participant.connected ? (participant.ready ? 'READY' : 'CONNECTED') : 'DISCONNECTED'}`)
+        .join('   |   ');
     }
   }
 
@@ -280,12 +299,12 @@ export class Menu {
       this.beginDeploy(null);
       return;
     }
-    if (this.lobby.isReady && this.lobby.isHost) {
-      this.lobby.launch();
+    if (this.lobby.isLaunched) {
+      this.lobbyStatus.textContent = 'Match already started.';
       return;
     }
     if (this.lobby.isReady) {
-      this.lobbyStatus.textContent = 'Connected. Wait for Commander 1 — only the host can press DEPLOY MATCH.';
+      this.lobbyStatus.textContent = 'Both commanders are connected. The match starts automatically when Commander 2 is ready.';
     } else {
       this.lobbyStatus.textContent = 'Create a room or join one with its room code and password before deployment.';
     }
