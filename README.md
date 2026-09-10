@@ -129,6 +129,7 @@ starts the loop.
   sample it.
 
 Deeper notes live in `docs/`: `ARCHITECTURE.md`, `ATMOSPHERE.md`, `UI.md`,
+`AGENT_FRIENDLY_PLAN.md`, `FULL_PLAYABILITY_IMPLEMENTATION_PROPOSAL.md`,
 `KNOWN_ISSUES.md`, and `REVIEW_RUBRIC.md` — the standard screenshots are judged
 against.
 
